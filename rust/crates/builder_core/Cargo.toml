@@ -1,0 +1,10 @@
+[package]
+name = "builder_core"
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+
+[lib]
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
