@@ -83,6 +83,12 @@ pub struct BridgeCameraState {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct BridgeViewportSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub enum BridgeViewPreset {
     Front,
     Back,
@@ -233,10 +239,10 @@ impl NativeViewportSession {
         Ok(inner.camera.into())
     }
 
-    pub fn viewport_size(&self) -> Result<Vec<u32>, String> {
+    pub fn viewport_size(&self) -> Result<BridgeViewportSize, String> {
         let inner = self.lock_inner()?;
         let (width, height) = inner.renderer.size();
-        Ok(vec![width, height])
+        Ok(BridgeViewportSize { width, height })
     }
 
     pub fn gpu_status(&self) -> Result<GpuStatus, String> {
