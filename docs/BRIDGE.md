@@ -30,6 +30,7 @@ The first bridge contract exposes:
 - core_status(): reports Builder design and Rig V3 contract versions.
 - solve_ik_preview(): calls the real builder_core two-bone solver.
 - gpu_status(): asynchronously asks WGPU for a high-performance adapter.
+- viewport_smoke_test(width, height): creates a real WGPU device, allocates an RGBA8 viewport render target, submits a render pass, and reports the active GPU/backend.
 
 This keeps Flutter free from rig math and GPU backend selection.
 
@@ -39,4 +40,4 @@ Flutter may request durable state changes and gesture boundaries. Continuous IK/
 
 ## WGPU stage
 
-builder_render already owns WGPU adapter selection. The next rendering step is a native viewport surface/texture transport; GPU frames should not be PNG-encoded and copied through Dart for every frame.
+builder_render now owns WGPU adapter/device creation, a resizable offscreen viewport target, a real clear render pass, and native camera state. The remaining integration step is native Flutter texture/surface transport; GPU frames must not be PNG-encoded and copied through Dart for every frame.
