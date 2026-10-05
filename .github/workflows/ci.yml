@@ -8,26 +8,43 @@ on:
   pull_request:
 
 jobs:
-  rust-core:
+  native-core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Test Rust workspace
+
+      - name: Test reusable Rust workspace
         working-directory: rust
         run: cargo test --workspace
 
-  flutter:
+  flutter-bridge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      - name: Install flutter_rust_bridge codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+
       - name: Flutter packages
         working-directory: app
         run: flutter pub get
+
+      - name: Generate Flutter/Rust bridge
+        working-directory: app
+        run: flutter_rust_bridge_codegen generate
+
+      - name: Test Flutter-facing Rust crate
+        working-directory: app/rust
+        run: cargo test
+
       - name: Flutter analyze
         working-directory: app
         run: flutter analyze
