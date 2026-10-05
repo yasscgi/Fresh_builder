@@ -5,46 +5,82 @@ on:
     branches:
       - main
       - "feat/**"
+      - "fix/**"
   pull_request:
 
 jobs:
   native-core:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Test reusable Rust workspace
-        working-directory: rust
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cd rust
+          cargo test --workspace
 
   flutter-bridge:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y curl git unzip xz-utils zip libglu1-mesa
 
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" --version
 
       - name: Install flutter_rust_bridge codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
 
       - name: Flutter packages
-        working-directory: app
-        run: flutter pub get
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          cd app
+          flutter pub get
 
       - name: Generate Flutter/Rust bridge
-        working-directory: app
-        run: flutter_rust_bridge_codegen generate
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          cd app
+          flutter_rust_bridge_codegen generate
 
       - name: Test Flutter-facing Rust crate
-        working-directory: app/rust
-        run: cargo test
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cd app/rust
+          cargo test
 
       - name: Flutter analyze
-        working-directory: app
-        run: flutter analyze
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          cd app
+          flutter analyze
