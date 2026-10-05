@@ -1,4 +1,5 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
+use builder_render::ViewportRenderer;
 use flutter_rust_bridge::frb;
 
 #[frb(init)]
@@ -51,6 +52,16 @@ pub struct GpuStatus {
     pub error: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct ViewportSmokeStatus {
+    pub success: bool,
+    pub width: u32,
+    pub height: u32,
+    pub gpu_name: String,
+    pub backend: String,
+    pub error: String,
+}
+
 pub fn core_status() -> CoreStatus {
     CoreStatus {
         name: "Fresh Builder Native Core".to_owned(),
@@ -97,6 +108,32 @@ pub async fn gpu_status() -> GpuStatus {
             device_type: String::new(),
             driver: String::new(),
             driver_info: String::new(),
+            error,
+        },
+    }
+}
+
+pub async fn viewport_smoke_test(width: u32, height: u32) -> ViewportSmokeStatus {
+    match ViewportRenderer::new(width, height).await {
+        Ok(renderer) => {
+            renderer.render_clear([0.035, 0.018, 0.075, 1.0]);
+            let info = renderer.adapter_info();
+
+            ViewportSmokeStatus {
+                success: true,
+                width,
+                height,
+                gpu_name: info.name.clone(),
+                backend: info.backend.clone(),
+                error: String::new(),
+            }
+        }
+        Err(error) => ViewportSmokeStatus {
+            success: false,
+            width,
+            height,
+            gpu_name: String::new(),
+            backend: String::new(),
             error,
         },
     }
