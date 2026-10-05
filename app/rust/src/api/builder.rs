@@ -1,5 +1,7 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
-use builder_render::ViewportRenderer;
+use std::sync::Mutex;
+
+use builder_render::{ViewPreset, ViewportCamera, ViewportRenderer};
 use flutter_rust_bridge::frb;
 
 #[frb(init)]
@@ -60,6 +62,44 @@ pub struct ViewportSmokeStatus {
     pub gpu_name: String,
     pub backend: String,
     pub error: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeColor {
+    pub r: f64,
+    pub g: f64,
+    pub b: f64,
+    pub a: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeCameraState {
+    pub yaw: f32,
+    pub pitch: f32,
+    pub distance: f32,
+    pub target_x: f32,
+    pub target_y: f32,
+    pub target_z: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BridgeViewPreset {
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+#[frb(opaque)]
+pub struct NativeViewportSession {
+    inner: Mutex<NativeViewportSessionInner>,
+}
+
+struct NativeViewportSessionInner {
+    renderer: ViewportRenderer,
+    camera: ViewportCamera,
 }
 
 pub fn core_status() -> CoreStatus {
@@ -136,6 +176,114 @@ pub async fn viewport_smoke_test(width: u32, height: u32) -> ViewportSmokeStatus
             backend: String::new(),
             error,
         },
+    }
+}
+
+impl NativeViewportSession {
+    pub async fn create(width: u32, height: u32) -> Result<Self, String> {
+        let renderer = ViewportRenderer::new(width, height).await?;
+        let camera = ViewportCamera::default();
+
+        Ok(Self {
+            inner: Mutex::new(NativeViewportSessionInner { renderer, camera }),
+        })
+    }
+
+    pub fn resize(&self, width: u32, height: u32) -> Result<(), String> {
+        let mut inner = self.lock_inner()?;
+        inner.renderer.resize(width, height)
+    }
+
+    pub fn render_clear(&self, color: BridgeColor) -> Result<(), String> {
+        let inner = self.lock_inner()?;
+        inner
+            .renderer
+            .render_clear([color.r, color.g, color.b, color.a]);
+        Ok(())
+    }
+
+    pub fn orbit(
+        &self,
+        delta_x: f32,
+        delta_y: f32,
+        sensitivity: f32,
+    ) -> Result<BridgeCameraState, String> {
+        let mut inner = self.lock_inner()?;
+        inner.camera.orbit(delta_x, delta_y, sensitivity);
+        Ok(inner.camera.into())
+    }
+
+    pub fn zoom(&self, delta: f32, sensitivity: f32) -> Result<BridgeCameraState, String> {
+        let mut inner = self.lock_inner()?;
+        inner.camera.zoom(delta, sensitivity);
+        Ok(inner.camera.into())
+    }
+
+    pub fn set_view_preset(
+        &self,
+        preset: BridgeViewPreset,
+    ) -> Result<BridgeCameraState, String> {
+        let mut inner = self.lock_inner()?;
+        inner.camera.set_preset(preset.into());
+        Ok(inner.camera.into())
+    }
+
+    pub fn camera_state(&self) -> Result<BridgeCameraState, String> {
+        let inner = self.lock_inner()?;
+        Ok(inner.camera.into())
+    }
+
+    pub fn viewport_size(&self) -> Result<Vec<u32>, String> {
+        let inner = self.lock_inner()?;
+        let (width, height) = inner.renderer.size();
+        Ok(vec![width, height])
+    }
+
+    pub fn gpu_status(&self) -> Result<GpuStatus, String> {
+        let inner = self.lock_inner()?;
+        let info = inner.renderer.adapter_info();
+
+        Ok(GpuStatus {
+            available: true,
+            name: info.name.clone(),
+            backend: info.backend.clone(),
+            device_type: info.device_type.clone(),
+            driver: info.driver.clone(),
+            driver_info: info.driver_info.clone(),
+            error: String::new(),
+        })
+    }
+
+    fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, NativeViewportSessionInner>, String> {
+        self.inner
+            .lock()
+            .map_err(|_| "Native viewport session lock was poisoned".to_owned())
+    }
+}
+
+impl From<ViewportCamera> for BridgeCameraState {
+    fn from(value: ViewportCamera) -> Self {
+        Self {
+            yaw: value.yaw,
+            pitch: value.pitch,
+            distance: value.distance,
+            target_x: value.target[0],
+            target_y: value.target[1],
+            target_z: value.target[2],
+        }
+    }
+}
+
+impl From<BridgeViewPreset> for ViewPreset {
+    fn from(value: BridgeViewPreset) -> Self {
+        match value {
+            BridgeViewPreset::Front => ViewPreset::Front,
+            BridgeViewPreset::Back => ViewPreset::Back,
+            BridgeViewPreset::Left => ViewPreset::Left,
+            BridgeViewPreset::Right => ViewPreset::Right,
+            BridgeViewPreset::Top => ViewPreset::Top,
+            BridgeViewPreset::Bottom => ViewPreset::Bottom,
+        }
     }
 }
 
