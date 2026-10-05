@@ -564,7 +564,7 @@ class _ViewportPainter extends CustomPainter {
 
     final horizon = size.height * 0.72;
     for (var i = -8; i <= 8; i++) {
-      final x = center.dx + i * math.max(26, size.width / 22);
+      final x = center.dx + i * math.max(26.0, size.width / 22);
       canvas.drawLine(
         Offset(x, horizon - 85),
         Offset(x, size.height),
@@ -578,7 +578,7 @@ class _ViewportPainter extends CustomPainter {
 
     final bodyPaint = Paint()
       ..color = foreground.withValues(alpha: 0.72)
-      ..strokeWidth = math.max(4, size.shortestSide * 0.012)
+      ..strokeWidth = math.max(4.0, size.shortestSide * 0.012)
       ..strokeCap = StrokeCap.round;
 
     final head = center.translate(0, -130);
