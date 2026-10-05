@@ -1,0 +1,13 @@
+[package]
+name = "fresh_builder_rust"
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+builder_core = { path = "../../rust/crates/builder_core" }
+builder_render = { path = "../../rust/crates/builder_render" }
+flutter_rust_bridge = "=2.13.0"

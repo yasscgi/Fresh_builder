@@ -1,0 +1,8 @@
+[package]
+name = "builder_render"
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+
+[dependencies]
+wgpu = "=30.0.1"
