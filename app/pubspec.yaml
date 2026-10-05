@@ -1,14 +1,15 @@
 name: fresh_builder
 description: Cross-platform FreshSTL Builder client.
 publish_to: "none"
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
-  sdk: ">=3.5.0 <4.0.0"
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  flutter_rust_bridge: ^2.13.0
 
 dev_dependencies:
   flutter_test:
