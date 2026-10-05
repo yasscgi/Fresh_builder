@@ -1,0 +1,33 @@
+name: Fresh Builder CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  pull_request:
+
+jobs:
+  rust-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test Rust workspace
+        working-directory: rust
+        run: cargo test --workspace
+
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter packages
+        working-directory: app
+        run: flutter pub get
+      - name: Flutter analyze
+        working-directory: app
+        run: flutter analyze
