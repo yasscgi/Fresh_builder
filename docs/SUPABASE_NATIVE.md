@@ -26,7 +26,7 @@ The function:
 4. uses the server-only storage credential to mint a short-lived signed URL,
 5. returns that URL to the app.
 
-Signed URLs are cached in memory by the Flutter client until shortly before expiration.
+Signed URLs are cached in memory by the Flutter client until shortly before expiration. Model bytes are then stored in a versioned application-support disk cache, so selecting the same unchanged asset does not download it again.
 
 ## Client configuration
 
@@ -87,7 +87,9 @@ The native shell now supports:
 - loading real Builder configuration and assets,
 - dynamic category navigation,
 - protected thumbnail resolution,
-- cloud asset dock,
-- RLS-backed saved-design repository.
+- cloud asset dock with selectable variations,
+- secure native model download/cache pipeline,
+- RLS-backed saved-design repository,
+- Rust `builder_io` format detection for cached local files.
 
-The next rendering integration is to pass the selected asset's resolved model URL to the Rust/WGPU loader.
+The next rendering integration is to pass the cached local model path through the existing Flutter/Rust bridge into the Rust/WGPU importer. Network authorization and downloading now stay outside the renderer.
