@@ -5,6 +5,7 @@
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
 #include <flutter/texture_registrar.h>
+#include <windows.h>
 
 #include <cstdint>
 #include <memory>
