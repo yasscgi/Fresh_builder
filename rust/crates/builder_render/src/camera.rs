@@ -47,6 +47,25 @@ impl ViewportCamera {
         self.distance = (self.distance * scale).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
 
+    pub fn view_projection(&self, aspect: f32) -> [[f32; 4]; 4] {
+        let safe_aspect = if aspect.is_finite() && aspect > 0.0001 {
+            aspect
+        } else {
+            1.0
+        };
+
+        let cos_pitch = self.pitch.cos();
+        let eye = [
+            self.target[0] + self.distance * cos_pitch * self.yaw.sin(),
+            self.target[1] + self.distance * self.pitch.sin(),
+            self.target[2] + self.distance * cos_pitch * self.yaw.cos(),
+        ];
+
+        let view = look_at_rh(eye, self.target, [0.0, 1.0, 0.0]);
+        let projection = perspective_rh_zo(45.0_f32.to_radians(), safe_aspect, 0.01, 1000.0);
+        multiply_mat4(projection, view)
+    }
+
     pub fn set_preset(&mut self, preset: ViewPreset) {
         match preset {
             ViewPreset::Front => {
@@ -79,6 +98,67 @@ impl ViewportCamera {
 
 fn wrap_angle(angle: f32) -> f32 {
     (angle + PI).rem_euclid(PI * 2.0) - PI
+}
+
+fn multiply_mat4(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let mut out = [[0.0; 4]; 4];
+    for column in 0..4 {
+        for row in 0..4 {
+            out[column][row] =
+                a[0][row] * b[column][0] +
+                a[1][row] * b[column][1] +
+                a[2][row] * b[column][2] +
+                a[3][row] * b[column][3];
+        }
+    }
+    out
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if !len.is_finite() || len <= f32::EPSILON {
+        return [0.0, 0.0, 0.0];
+    }
+    [v[0] / len, v[1] / len, v[2] / len]
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn look_at_rh(eye: [f32; 3], target: [f32; 3], up: [f32; 3]) -> [[f32; 4]; 4] {
+    let f = normalize([
+        target[0] - eye[0],
+        target[1] - eye[1],
+        target[2] - eye[2],
+    ]);
+    let s = normalize(cross(f, up));
+    let u = cross(s, f);
+
+    [
+        [s[0], u[0], -f[0], 0.0],
+        [s[1], u[1], -f[1], 0.0],
+        [s[2], u[2], -f[2], 0.0],
+        [-dot(s, eye), -dot(u, eye), dot(f, eye), 1.0],
+    ]
+}
+
+fn perspective_rh_zo(fovy: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
+    let f = 1.0 / (fovy * 0.5).tan();
+    [
+        [f / aspect, 0.0, 0.0, 0.0],
+        [0.0, f, 0.0, 0.0],
+        [0.0, 0.0, far / (near - far), -1.0],
+        [0.0, 0.0, (near * far) / (near - far), 0.0],
+    ]
 }
 
 #[cfg(test)]
