@@ -52,3 +52,40 @@ jobs:
       - name: Flutter tests
         working-directory: app
         run: flutter test
+
+  windows-texture:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install flutter_rust_bridge codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+
+      - name: Generate Windows runner
+        working-directory: app
+        run: flutter create --project-name fresh_builder --org com.freshstl --platforms=windows .
+
+      - name: Flutter packages
+        working-directory: app
+        run: flutter pub get
+
+      - name: Generate Flutter/Rust bridge
+        working-directory: app
+        run: flutter_rust_bridge_codegen generate
+
+      - name: Analyze viewport texture package
+        working-directory: app/packages/fresh_builder_viewport_texture
+        run: flutter analyze
+
+      - name: Test viewport texture package
+        working-directory: app/packages/fresh_builder_viewport_texture
+        run: flutter test
+
+      - name: Build Windows application
+        working-directory: app
+        run: flutter build windows --debug

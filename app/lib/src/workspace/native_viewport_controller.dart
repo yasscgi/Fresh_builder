@@ -1,11 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:fresh_builder_viewport_texture/fresh_builder_viewport_texture.dart';
 
 import '../rust/api/builder.dart';
 
 class NativeViewportController extends ChangeNotifier {
   NativeViewportSession? _session;
+  final FreshBuilderViewportTexture _textureBridge =
+      FreshBuilderViewportTexture();
+  int? _textureId;
+  String? _textureError;
   BridgeCameraState? _camera;
   NativeSceneStatus? _sceneStatus;
   String? _sceneError;
@@ -26,6 +31,9 @@ class NativeViewportController extends ChangeNotifier {
   BridgeCameraState? get camera => _camera;
   NativeSceneStatus? get sceneStatus => _sceneStatus;
   String? get sceneError => _sceneError;
+  int? get textureId => _textureId;
+  String? get textureError => _textureError;
+  bool get textureAvailable => _textureId != null;
 
   Future<void> ensureInitialized({
     required double logicalWidth,
@@ -58,14 +66,9 @@ class NativeViewportController extends ChangeNotifier {
       _width = width;
       _height = height;
       _camera = await session.cameraState();
-      await session.renderClear(
-        color: BridgeColor(
-          r: 0.035,
-          g: 0.043,
-          b: 0.098,
-          a: 1,
-        ),
-      );
+      await _ensureTexture();
+      await session.renderFrame();
+      await _markTextureFrame();
       await _loadPendingScenes();
     } catch (error) {
       _error = error.toString();
@@ -91,6 +94,7 @@ class NativeViewportController extends ChangeNotifier {
       await session.resize(width: width, height: height);
       _width = width;
       _height = height;
+      await _markTextureFrame();
     } catch (error) {
       _error = error.toString();
       notifyListeners();
@@ -125,6 +129,7 @@ class NativeViewportController extends ChangeNotifier {
           sensitivity: sensitivity,
         );
       }
+      await _markTextureFrame();
       notifyListeners();
     } catch (error) {
       _error = error.toString();
@@ -159,6 +164,7 @@ class NativeViewportController extends ChangeNotifier {
           sensitivity: sensitivity,
         );
       }
+      await _markTextureFrame();
       notifyListeners();
     } catch (error) {
       _error = error.toString();
@@ -211,6 +217,7 @@ class NativeViewportController extends ChangeNotifier {
         metersPerUnit: pending.metersPerUnit,
       );
       _sceneError = null;
+      await _markTextureFrame();
       notifyListeners();
     } catch (error) {
       _sceneError = error.toString();
@@ -224,6 +231,7 @@ class NativeViewportController extends ChangeNotifier {
     if (session != null) {
       try {
         await session.removeScene(sceneKey: sceneKey);
+        await _markTextureFrame();
       } catch (error) {
         _error = error.toString();
       }
@@ -239,6 +247,7 @@ class NativeViewportController extends ChangeNotifier {
     if (session != null) {
       try {
         await session.clearScenes();
+        await _markTextureFrame();
       } catch (error) {
         _error = error.toString();
       }
@@ -262,10 +271,33 @@ class NativeViewportController extends ChangeNotifier {
 
     try {
       _camera = await session.setViewPreset(preset: nativePreset);
+      await _markTextureFrame();
       notifyListeners();
     } catch (error) {
       _error = error.toString();
       notifyListeners();
+    }
+  }
+
+  Future<void> _ensureTexture() async {
+    if (!_textureBridge.supported || _textureId != null) return;
+    try {
+      _textureId = await _textureBridge.create();
+      _textureError = null;
+    } catch (error) {
+      _textureError = error.toString();
+    }
+  }
+
+  Future<void> _markTextureFrame() async {
+    final session = _session;
+    if (_textureId == null || session == null) return;
+    try {
+      await session.publishFrame();
+      await _textureBridge.markFrame();
+      _textureError = null;
+    } catch (error) {
+      _textureError = error.toString();
     }
   }
 
@@ -276,6 +308,8 @@ class NativeViewportController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_textureBridge.dispose());
+    _textureId = null;
     _session?.dispose();
     _session = null;
     super.dispose();

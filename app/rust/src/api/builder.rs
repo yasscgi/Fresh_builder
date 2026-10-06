@@ -163,6 +163,16 @@ impl NativeViewportSessionInner {
             [0.035, 0.043, 0.098, 1.0],
         );
     }
+
+    fn publish_frame(&self) -> Result<(), String> {
+        if !crate::frame_bridge::capture_enabled() {
+            return Ok(());
+        }
+        let (width, height) = self.renderer.size();
+        let rgba = self.renderer.read_rgba8()?;
+        crate::frame_bridge::publish(width, height, rgba);
+        Ok(())
+    }
 }
 
 pub fn core_status() -> CoreStatus {
@@ -412,6 +422,11 @@ impl NativeViewportSession {
         let inner = self.lock_inner()?;
         inner.render_frame();
         Ok(())
+    }
+
+    pub fn publish_frame(&self) -> Result<(), String> {
+        let inner = self.lock_inner()?;
+        inner.publish_frame()
     }
 
     pub fn render_clear(&self, color: BridgeColor) -> Result<(), String> {
