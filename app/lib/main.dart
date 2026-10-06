@@ -57,48 +57,6 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
     );
   }
 
-  Future<void> _preloadBaseCharacter(BuilderCloudData data) async {
-    final cache = _assetCache;
-    if (cache == null) return;
-
-    BuilderCloudAsset? base;
-    for (final asset in data.assets) {
-      final role = asset.role.trim().toLowerCase();
-      if (role == 'base_character' || asset.type == 'base_character') {
-        base = asset;
-        break;
-      }
-    }
-    if (base == null) return;
-
-    final choice = BuilderAssetChoice(
-      asset: base,
-      variation: base.variations.isEmpty ? null : base.variations.first,
-    );
-
-    try {
-      _workspace.setBusy(true, status: 'Loading base character');
-      final local = await cache.getOrDownload(choice);
-      await _nativeViewport.upsertLocalScene(
-        sceneKey: 'role:base_character',
-        path: local.file.path,
-        metersPerUnit: _metersPerUnit(choice),
-      );
-      if (!mounted) return;
-      final nativeScene = _nativeViewport.sceneStatus;
-      _workspace.setBusy(
-        false,
-        status: nativeScene?.loadedToGpu == true
-            ? 'Base character GPU ready'
-            : nativeScene?.readiness == 'needs_fbx_decoder'
-                ? 'Base character cached · FBX decoder pending'
-                : 'Base character ready',
-      );
-    } catch (error) {
-      if (!mounted) return;
-      _workspace.setBusy(false, status: 'Base character load failed');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -165,6 +123,50 @@ class _BuilderPageState extends State<BuilderPage> {
       _assetCache = BuilderAssetDiskCache();
     }
   }
+
+  Future<void> _preloadBaseCharacter(BuilderCloudData data) async {
+    final cache = _assetCache;
+    if (cache == null) return;
+
+    BuilderCloudAsset? base;
+    for (final asset in data.assets) {
+      final role = asset.role.trim().toLowerCase();
+      if (role == 'base_character' || asset.type == 'base_character') {
+        base = asset;
+        break;
+      }
+    }
+    if (base == null) return;
+
+    final choice = BuilderAssetChoice(
+      asset: base,
+      variation: base.variations.isEmpty ? null : base.variations.first,
+    );
+
+    try {
+      _workspace.setBusy(true, status: 'Loading base character');
+      final local = await cache.getOrDownload(choice);
+      await _nativeViewport.upsertLocalScene(
+        sceneKey: 'role:base_character',
+        path: local.file.path,
+        metersPerUnit: _metersPerUnit(choice),
+      );
+      if (!mounted) return;
+      final nativeScene = _nativeViewport.sceneStatus;
+      _workspace.setBusy(
+        false,
+        status: nativeScene?.loadedToGpu == true
+            ? 'Base character GPU ready'
+            : nativeScene?.readiness == 'needs_fbx_decoder'
+                ? 'Base character cached · FBX decoder pending'
+                : 'Base character ready',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Base character load failed');
+    }
+  }
+
 
   @override
   void dispose() {
