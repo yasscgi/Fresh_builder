@@ -36,6 +36,7 @@ final class BuilderAssetDiskCache {
   final http.Client _httpClient;
   Directory? _cacheDirectory;
   final Map<String, Future<CachedBuilderAsset>> _inFlight = {};
+  final Map<String, Set<String>> _knownFiles = {};
 
   Future<CachedBuilderAsset> getOrDownload(BuilderAssetChoice choice) {
     final key = choice.selectionKey;
@@ -67,6 +68,7 @@ final class BuilderAssetDiskCache {
     final file = File('${directory.path}/$digest.$extension');
 
     if (await file.exists() && await file.length() > 0) {
+      _remember(choice.selectionKey, file);
       return CachedBuilderAsset(
         choice: choice,
         file: file,
@@ -97,6 +99,7 @@ final class BuilderAssetDiskCache {
       await file.delete();
     }
     await temp.rename(file.path);
+    _remember(choice.selectionKey, file);
 
     return CachedBuilderAsset(
       choice: choice,
@@ -110,13 +113,19 @@ final class BuilderAssetDiskCache {
 
   Future<void> invalidate(BuilderAssetChoice choice) async {
     _resolver.invalidateAsset(choice.assetId);
-    final directory = await _directory();
-    final prefix = sha256.convert(choice.selectionKey.codeUnits).toString();
-    await for (final entity in directory.list()) {
-      if (entity is File && entity.path.contains(prefix)) {
-        await entity.delete();
+    final paths = _knownFiles.remove(choice.selectionKey);
+    if (paths == null) return;
+
+    for (final path in paths) {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
       }
     }
+  }
+
+  void _remember(String selectionKey, File file) {
+    _knownFiles.putIfAbsent(selectionKey, () => <String>{}).add(file.path);
   }
 
   String _sourceFormat(BuilderAssetChoice choice) {
