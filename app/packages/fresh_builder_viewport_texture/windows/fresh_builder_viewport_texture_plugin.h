@@ -28,7 +28,7 @@ class FreshBuilderViewportTexturePlugin : public flutter::Plugin {
       const FreshBuilderViewportTexturePlugin&) = delete;
 
  private:
-  using CaptureEnabledFn = void(__cdecl*)(bool);
+  using CaptureEnabledFn = void(__cdecl*)(uint8_t);
   using CopyLatestFrameFn = size_t(__cdecl*)(
       uint8_t*, size_t, uint32_t*, uint32_t*, uint64_t*);
 
