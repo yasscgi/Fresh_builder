@@ -9,9 +9,7 @@ class NativeViewportController extends ChangeNotifier {
   BridgeCameraState? _camera;
   NativeSceneStatus? _sceneStatus;
   String? _error;
-  String? _pendingSceneKey;
-  String? _pendingScenePath;
-  double _pendingMetersPerUnit = 1;
+  final Map<String, ({String path, double metersPerUnit})> _pendingScenes = {};
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -59,14 +57,14 @@ class NativeViewportController extends ChangeNotifier {
       _height = height;
       _camera = await session.cameraState();
       await session.renderClear(
-        color: const BridgeColor(
+        color: BridgeColor(
           r: 0.035,
           g: 0.043,
           b: 0.098,
           a: 1,
         ),
       );
-      await _loadPendingScene();
+      await _loadPendingScenes();
     } catch (error) {
       _error = error.toString();
     } finally {
@@ -176,35 +174,39 @@ class NativeViewportController extends ChangeNotifier {
     required String path,
     required double metersPerUnit,
   }) async {
-    _pendingSceneKey = sceneKey;
-    _pendingScenePath = path;
-    _pendingMetersPerUnit =
-        metersPerUnit.isFinite && metersPerUnit > 0 ? metersPerUnit : 1;
+    if (sceneKey.isEmpty || path.isEmpty) return;
+
+    _pendingScenes[sceneKey] = (
+      path: path,
+      metersPerUnit:
+          metersPerUnit.isFinite && metersPerUnit > 0 ? metersPerUnit : 1,
+    );
 
     if (_session == null) {
       notifyListeners();
       return;
     }
-    await _loadPendingScene();
+    await _loadSceneKey(sceneKey);
   }
 
-  Future<void> _loadPendingScene() async {
-    final session = _session;
-    final sceneKey = _pendingSceneKey;
-    final path = _pendingScenePath;
-    if (session == null ||
-        sceneKey == null ||
-        sceneKey.isEmpty ||
-        path == null ||
-        path.isEmpty) {
-      return;
+  Future<void> _loadPendingScenes() async {
+    if (_session == null || _pendingScenes.isEmpty) return;
+    final keys = _pendingScenes.keys.toList(growable: false);
+    for (final key in keys) {
+      await _loadSceneKey(key);
     }
+  }
+
+  Future<void> _loadSceneKey(String sceneKey) async {
+    final session = _session;
+    final pending = _pendingScenes[sceneKey];
+    if (session == null || pending == null) return;
 
     try {
       _sceneStatus = await session.upsertLocalScene(
         sceneKey: sceneKey,
-        path: path,
-        metersPerUnit: _pendingMetersPerUnit,
+        path: pending.path,
+        metersPerUnit: pending.metersPerUnit,
       );
       _error = null;
       notifyListeners();
@@ -215,10 +217,7 @@ class NativeViewportController extends ChangeNotifier {
   }
 
   Future<void> removeScene(String sceneKey) async {
-    if (_pendingSceneKey == sceneKey) {
-      _pendingSceneKey = null;
-      _pendingScenePath = null;
-    }
+    _pendingScenes.remove(sceneKey);
     final session = _session;
     if (session != null) {
       try {
@@ -231,8 +230,7 @@ class NativeViewportController extends ChangeNotifier {
   }
 
   Future<void> clearScenes() async {
-    _pendingSceneKey = null;
-    _pendingScenePath = null;
+    _pendingScenes.clear();
     _sceneStatus = null;
     final session = _session;
     if (session != null) {
