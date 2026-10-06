@@ -1,4 +1,4 @@
-use crate::{GpuAdapterInfo, GpuContext};
+use crate::{GpuAdapterInfo, GpuContext, GpuScene, RenderScene};
 
 const DEFAULT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
@@ -88,6 +88,10 @@ impl ViewportRenderer {
         }
 
         self.context.queue.submit(Some(encoder.finish()));
+    }
+
+    pub fn upload_scene(&self, scene: &RenderScene) -> Result<GpuScene, String> {
+        self.context.upload_scene(scene)
     }
 
     pub fn texture(&self) -> &wgpu::Texture {
