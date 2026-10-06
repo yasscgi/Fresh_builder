@@ -23,6 +23,14 @@ pub async fn probe_high_performance_adapter() -> Result<GpuAdapterInfo, String> 
     Ok(adapter_info(&adapter))
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SceneUploadStats {
+    pub mesh_count: usize,
+    pub vertex_count: usize,
+    pub index_count: usize,
+    pub joint_count: u32,
+}
+
 pub struct GpuContext {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
@@ -58,6 +66,31 @@ impl GpuContext {
             device,
             queue,
             info,
+        })
+    }
+
+    pub fn validate_scene_for_upload(
+        &self,
+        scene: &crate::RenderScene,
+    ) -> Result<SceneUploadStats, String> {
+        if scene.is_empty() {
+            return Err("Cannot upload an empty Builder scene".to_owned());
+        }
+
+        for mesh in &scene.meshes {
+            if mesh.indices.iter().any(|index| *index as usize >= mesh.vertices.len()) {
+                return Err(format!("Mesh {} contains an out-of-range index", mesh.name));
+            }
+            if mesh.skinned && scene.joint_count == 0 {
+                return Err(format!("Skinned mesh {} has no scene joints", mesh.name));
+            }
+        }
+
+        Ok(SceneUploadStats {
+            mesh_count: scene.meshes.len(),
+            vertex_count: scene.vertex_count(),
+            index_count: scene.index_count(),
+            joint_count: scene.joint_count,
         })
     }
 }
