@@ -81,8 +81,12 @@ pub fn decode_gltf_scene(path: impl AsRef<Path>, meters_per_unit: f32) -> Result
                     .unwrap_or_else(|| format!("mesh_{}_{}", mesh.index(), primitive_index)),
                 vertices,
                 indices,
-                skinned: primitive.get(&gltf::Semantic::Joints(0)).is_some()
-                    && primitive.get(&gltf::Semantic::Weights(0)).is_some(),
+                skinned: primitive
+                    .get(&gltf::Semantic::Joints(0))
+                    .is_some()
+                    && primitive
+                        .get(&gltf::Semantic::Weights(0))
+                        .is_some(),
             });
         }
     }
