@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'src/cloud/cloud_account_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
 
 Future<void> main() async {
@@ -220,6 +221,7 @@ class _TopBar extends StatelessWidget {
             tooltip: 'Theme',
             onPressed: onToggleTheme,
           ),
+          CloudAccountButton(cloudReady: cloudReady),
           const SizedBox(width: 6),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
