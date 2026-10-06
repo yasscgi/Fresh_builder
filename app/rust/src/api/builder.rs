@@ -1,4 +1,5 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
+use builder_io::{detect_asset_format, AssetFormat};
 use std::sync::Mutex;
 
 use builder_render::{ViewPreset, ViewportCamera, ViewportRenderer};
@@ -88,6 +89,13 @@ pub struct BridgeViewportSize {
     pub height: u32,
 }
 
+#[derive(Clone, Debug)]
+pub struct LocalAssetInfo {
+    pub path: String,
+    pub format: String,
+    pub supported_for_import: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum BridgeViewPreset {
     Front,
@@ -114,6 +122,24 @@ pub fn core_status() -> CoreStatus {
         bridge_version: env!("CARGO_PKG_VERSION").to_owned(),
         design_version: 4,
         rig_profile: "freshstl_mixamo_rig_v3".to_owned(),
+    }
+}
+
+pub fn inspect_local_asset(path: String) -> LocalAssetInfo {
+    let format = detect_asset_format(&path);
+    let supported_for_import = matches!(
+        format,
+        AssetFormat::Fbx
+            | AssetFormat::Glb
+            | AssetFormat::Gltf
+            | AssetFormat::Stl
+            | AssetFormat::ThreeMf
+    );
+
+    LocalAssetInfo {
+        path,
+        format: format!("{format:?}").to_ascii_lowercase(),
+        supported_for_import,
     }
 }
 
