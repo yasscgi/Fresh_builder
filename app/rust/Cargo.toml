@@ -10,4 +10,5 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [dependencies]
 builder_core = { path = "../../rust/crates/builder_core" }
 builder_render = { path = "../../rust/crates/builder_render" }
+builder_io = { path = "../../rust/crates/builder_io" }
 flutter_rust_bridge = "=2.13.0"

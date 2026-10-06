@@ -95,6 +95,22 @@ impl Neg for Vec3 {
     }
 }
 
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RigProfileGeneration {
+    V2Legacy,
+    V3,
+    Unsupported,
+}
+
+pub fn detect_rig_profile_generation(format: &str) -> RigProfileGeneration {
+    match format.trim().to_ascii_lowercase().as_str() {
+        "freshstl_mixamo_rig_v3" => RigProfileGeneration::V3,
+        "freshstl_mixamo_rig_v2" => RigProfileGeneration::V2Legacy,
+        _ => RigProfileGeneration::Unsupported,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SemanticBone {
     Hips,
@@ -403,6 +419,22 @@ pub fn solve_two_bone_ik(input: TwoBoneIkInput) -> Option<TwoBoneIkResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_v2_as_legacy_without_promoting_it_to_v3() {
+        assert_eq!(
+            detect_rig_profile_generation("freshstl_mixamo_rig_v2"),
+            RigProfileGeneration::V2Legacy
+        );
+        assert_eq!(
+            detect_rig_profile_generation("freshstl_mixamo_rig_v3"),
+            RigProfileGeneration::V3
+        );
+        assert_eq!(
+            detect_rig_profile_generation("unknown"),
+            RigProfileGeneration::Unsupported
+        );
+    }
 
     #[test]
     fn continuous_drag_creates_one_undo_entry() {
