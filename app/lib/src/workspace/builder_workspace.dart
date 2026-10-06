@@ -214,7 +214,9 @@ class BuilderViewportStatus extends StatelessWidget {
             ? 'Loading asset…'
             : nativeController.error != null
                 ? 'Native viewport error'
-                : assetName == null
+                : nativeController.sceneError != null
+                    ? 'Scene import error'
+                    : assetName == null
                     ? nativeController.ready
                         ? 'GPU viewport ready'
                         : nativeController.initializing
@@ -253,7 +255,9 @@ class BuilderViewportStatus extends StatelessWidget {
                       ? Icons.lock_rounded
                       : nativeController.error != null
                           ? Icons.error_outline_rounded
-                          : nativeController.sceneStatus?.loadedToGpu == true
+                          : nativeController.sceneError != null
+                              ? Icons.warning_amber_rounded
+                              : nativeController.sceneStatus?.loadedToGpu == true
                               ? Icons.memory_rounded
                               : Icons.view_in_ar_rounded,
                   size: 15,
