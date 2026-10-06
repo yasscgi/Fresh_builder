@@ -30,6 +30,8 @@ Implemented:
 - two-bone IK solver
 - flutter_rust_bridge 2.13 source contract
 - WGPU 30 adapter probing
+- Supabase Auth + RLS-backed FreshSTL Builder cloud data
+- protected Builder asset signed-URL Edge Function
 - CI definitions for Rust, FRB codegen and Flutter analysis
 
 Next rendering milestone:
@@ -70,3 +72,15 @@ cargo test --workspace
 ```
 
 The Flutter-facing Rust crate lives at `app/rust` and depends on the reusable engine crates rather than duplicating their logic.
+
+
+## FreshSTL cloud
+
+Cloud integration reuses the existing FreshSTL Supabase project. Run with a publishable key:
+
+```bash
+cd app
+flutter run --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxx
+```
+
+Do not use a service-role or secret key in the native app. See `docs/SUPABASE_NATIVE.md` for the access and protected-asset flow.
