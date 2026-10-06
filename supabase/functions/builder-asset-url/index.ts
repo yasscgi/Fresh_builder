@@ -145,15 +145,20 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  const publishableKeys = JSON.parse(
+    Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}",
+  ) as Record<string, string>;
+  const clientKey =
+    publishableKeys.default ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+
+  if (!supabaseUrl || !clientKey || !serviceRoleKey) {
     return json({ error: "Supabase function environment is incomplete" }, 500);
   }
 
   const token = authHeader.slice("Bearer ".length).trim();
 
-  const userClient = createClient(supabaseUrl, anonKey, {
+  const userClient = createClient(supabaseUrl, clientKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
