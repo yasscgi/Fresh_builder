@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -10,11 +11,15 @@ import 'src/cloud/cloud_account_button.dart';
 import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
+import 'src/rust/frb_generated.dart';
 import 'src/workspace/builder_workspace.dart';
 import 'src/workspace/current_builder_ui.dart';
+import 'src/workspace/native_viewport_controller.dart';
+import 'src/workspace/native_viewport_surface.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await FreshBuilderRust.init();
   final cloudReady = await FreshSupabaseBootstrap.initialize();
   runApp(FreshBuilderApp(cloudReady: cloudReady));
 }
@@ -49,6 +54,49 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
           ? const Color(0xFF8B5CF6).withValues(alpha: 0.18)
           : const Color(0xFF7C3AED).withValues(alpha: 0.12),
     );
+  }
+
+  Future<void> _preloadBaseCharacter(BuilderCloudData data) async {
+    final cache = _assetCache;
+    if (cache == null) return;
+
+    BuilderCloudAsset? base;
+    for (final asset in data.assets) {
+      final role = asset.role.trim().toLowerCase();
+      if (role == 'base_character' || asset.type == 'base_character') {
+        base = asset;
+        break;
+      }
+    }
+    if (base == null) return;
+
+    final choice = BuilderAssetChoice(
+      asset: base,
+      variation: base.variations.isEmpty ? null : base.variations.first,
+    );
+
+    try {
+      _workspace.setBusy(true, status: 'Loading base character');
+      final local = await cache.getOrDownload(choice);
+      await _nativeViewport.upsertLocalScene(
+        sceneKey: 'role:base_character',
+        path: local.file.path,
+        metersPerUnit: _metersPerUnit(choice),
+      );
+      if (!mounted) return;
+      final nativeScene = _nativeViewport.sceneStatus;
+      _workspace.setBusy(
+        false,
+        status: nativeScene?.loadedToGpu == true
+            ? 'Base character GPU ready'
+            : nativeScene?.readiness == 'needs_fbx_decoder'
+                ? 'Base character cached · FBX decoder pending'
+                : 'Base character ready',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Base character load failed');
+    }
   }
 
   @override
@@ -97,6 +145,7 @@ class _BuilderPageState extends State<BuilderPage> {
   String? _cloudError;
   String? _assetError;
   late final BuilderWorkspaceController _workspace;
+  late final NativeViewportController _nativeViewport;
 
   static const fallbackCategories = <(IconData, String)>[
     (Icons.accessibility_new_rounded, 'Pose'),
@@ -110,6 +159,7 @@ class _BuilderPageState extends State<BuilderPage> {
   void initState() {
     super.initState();
     _workspace = BuilderWorkspaceController();
+    _nativeViewport = NativeViewportController();
     if (widget.cloudReady) {
       _assetCache = BuilderAssetDiskCache();
     }
@@ -118,6 +168,7 @@ class _BuilderPageState extends State<BuilderPage> {
   @override
   void dispose() {
     _assetCache?.dispose();
+    _nativeViewport.dispose();
     _workspace.dispose();
     super.dispose();
   }
@@ -219,7 +270,26 @@ class _BuilderPageState extends State<BuilderPage> {
         _cachedAsset = local;
         _assetLoading = false;
       });
-      _workspace.setBusy(false, status: local.cacheHit ? 'Loaded from cache' : 'Asset ready');
+
+      _workspace.setBusy(true, status: 'Loading native scene');
+      await _nativeViewport.upsertLocalScene(
+        sceneKey: _nativeSceneKey(choice),
+        path: local.file.path,
+        metersPerUnit: _metersPerUnit(choice),
+      );
+
+      if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
+      final nativeScene = _nativeViewport.sceneStatus;
+      _workspace.setBusy(
+        false,
+        status: nativeScene?.loadedToGpu == true
+            ? 'GPU scene ready'
+            : nativeScene?.readiness == 'needs_fbx_decoder'
+                ? 'FBX cached · decoder pending'
+                : local.cacheHit
+                    ? 'Loaded from cache'
+                    : 'Asset ready',
+      );
     } catch (error) {
       if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
       setState(() {
@@ -228,6 +298,62 @@ class _BuilderPageState extends State<BuilderPage> {
       });
       _workspace.setBusy(false, status: 'Asset failed');
     }
+  }
+
+  String _nativeSceneKey(BuilderAssetChoice choice) {
+    final role = choice.asset.role.trim().toLowerCase();
+    if (role == 'base_character' || choice.asset.type == 'base_character') {
+      return 'role:base_character';
+    }
+    if (role == 'stand' || role == 'pedestal') {
+      return 'role:stand';
+    }
+
+    BuilderCloudCategory? category;
+    for (final item in _cloudData?.categories ?? const <BuilderCloudCategory>[]) {
+      if (item.id == choice.asset.categoryId ||
+          item.slug == choice.asset.categorySlug) {
+        category = item;
+        break;
+      }
+    }
+
+    final selectionMode = category?.selectionMode.toLowerCase();
+    if (selectionMode == 'multiple' ||
+        selectionMode == 'multi' ||
+        selectionMode == 'many') {
+      return 'selection:${choice.selectionKey}';
+    }
+
+    final slot = category?.slot?.trim();
+    if (slot != null && slot.isNotEmpty) return 'slot:$slot';
+    if (choice.asset.categoryId?.isNotEmpty == true) {
+      return 'category:${choice.asset.categoryId}';
+    }
+    if (choice.asset.categorySlug?.isNotEmpty == true) {
+      return 'category:${choice.asset.categorySlug}';
+    }
+    return 'asset:${choice.assetId}';
+  }
+
+  double _metersPerUnit(BuilderAssetChoice choice) {
+    final metadata = choice.metadata;
+    final raw = metadata['metersPerBlenderUnit'] ??
+        metadata['meters_per_blender_unit'] ??
+        metadata['metersPerUnit'];
+    if (raw is num && raw.toDouble().isFinite && raw.toDouble() > 0) {
+      return raw.toDouble();
+    }
+
+    final sourceUnit = (metadata['sourceUnit'] ?? metadata['unit'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    return switch (sourceUnit) {
+      'mm' || 'millimeter' || 'millimeters' => 0.001,
+      'cm' || 'centimeter' || 'centimeters' => 0.01,
+      _ => 1.0,
+    };
   }
 
   IconData _iconForCategory(BuilderCloudCategory category) {
@@ -248,6 +374,7 @@ class _BuilderPageState extends State<BuilderPage> {
   }
 
   Future<void> _openProduct(BuilderProductSummary product) async {
+    await _nativeViewport.clearScenes();
     setState(() {
       _selectedProduct = product;
       _cloudLoading = true;
@@ -266,6 +393,7 @@ class _BuilderPageState extends State<BuilderPage> {
         _cloudData = data;
         _cloudLoading = false;
       });
+      unawaited(_preloadBaseCharacter(data));
     } catch (error) {
       if (!mounted || _selectedProduct?.id != product.id) return;
       setState(() {
@@ -319,7 +447,11 @@ class _BuilderPageState extends State<BuilderPage> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: BuilderViewport(
+                  child: NativeViewportSurface(
+                    nativeController: _nativeViewport,
+                    workspaceController: _workspace,
+                    allowDirectOrbit: true,
+                    child: BuilderViewport(
                     rigMode: _rigMode,
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
@@ -330,6 +462,7 @@ class _BuilderPageState extends State<BuilderPage> {
                     assetCacheHit: _cachedAsset?.cacheHit,
                     assetLoading: _assetLoading,
                     assetError: _assetError,
+                  ),
                   ),
                 ),
                 Positioned(
@@ -346,9 +479,14 @@ class _BuilderPageState extends State<BuilderPage> {
                   child: ListenableBuilder(
                     listenable: _workspace,
                     builder: (context, _) => CurrentBuilderViewControls(
-                      onView: (preset) =>
-                          _workspace.setViewPreset(preset.name),
-                      onOrbit: (_, __) => _workspace.markOrbit(),
+                      onView: (preset) {
+                        _workspace.setViewPreset(preset.name);
+                        unawaited(_nativeViewport.setViewPreset(preset.name));
+                      },
+                      onOrbit: (dx, dy) {
+                        _nativeViewport.orbit(dx, dy);
+                        _workspace.markOrbit();
+                      },
                       disabled: _workspace.navigationLocked,
                     ),
                   ),
@@ -433,7 +571,11 @@ class _BuilderPageState extends State<BuilderPage> {
     return Stack(
       children: [
         Positioned.fill(
-          child: BuilderViewport(
+          child: NativeViewportSurface(
+            nativeController: _nativeViewport,
+            workspaceController: _workspace,
+            allowDirectOrbit: false,
+            child: BuilderViewport(
             rigMode: _rigMode,
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
@@ -444,6 +586,7 @@ class _BuilderPageState extends State<BuilderPage> {
             assetCacheHit: _cachedAsset?.cacheHit,
             assetLoading: _assetLoading,
             assetError: _assetError,
+          ),
           ),
         ),
         Positioned(
@@ -457,8 +600,14 @@ class _BuilderPageState extends State<BuilderPage> {
           child: ListenableBuilder(
             listenable: _workspace,
             builder: (context, _) => CurrentBuilderViewControls(
-              onView: (preset) => _workspace.setViewPreset(preset.name),
-              onOrbit: (_, __) => _workspace.markOrbit(),
+              onView: (preset) {
+                _workspace.setViewPreset(preset.name);
+                unawaited(_nativeViewport.setViewPreset(preset.name));
+              },
+              onOrbit: (dx, dy) {
+                _nativeViewport.orbit(dx, dy);
+                _workspace.markOrbit();
+              },
               disabled: _workspace.navigationLocked,
             ),
           ),
@@ -501,6 +650,7 @@ class _BuilderPageState extends State<BuilderPage> {
           right: 92,
           child: BuilderViewportStatus(
             controller: _workspace,
+            nativeController: _nativeViewport,
             assetName: _selectedAsset?.name,
             assetLoading: _assetLoading,
             cacheHit: _cachedAsset?.cacheHit,

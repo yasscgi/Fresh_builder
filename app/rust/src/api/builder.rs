@@ -1,8 +1,8 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
 use builder_io::{decode_gltf_scene, detect_asset_format, inspect_scene_file, AssetFormat, ImportReadiness};
-use std::sync::Mutex;
+use std::{collections::HashMap, sync::Mutex};
 
-use builder_render::{ViewPreset, ViewportCamera, ViewportRenderer};
+use builder_render::{GpuScene, ViewPreset, ViewportCamera, ViewportRenderer};
 use flutter_rust_bridge::frb;
 
 #[frb(init)]
@@ -115,6 +115,20 @@ pub struct DecodedSceneInfo {
     pub skinned_mesh_count: u32,
 }
 
+#[derive(Clone, Debug)]
+pub struct NativeSceneStatus {
+    pub scene_key: String,
+    pub path: String,
+    pub format: String,
+    pub readiness: String,
+    pub loaded_to_gpu: bool,
+    pub mesh_count: u32,
+    pub vertex_count: u64,
+    pub index_count: u64,
+    pub joint_count: u32,
+    pub skinned_mesh_count: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum BridgeViewPreset {
     Front,
@@ -133,6 +147,7 @@ pub struct NativeViewportSession {
 struct NativeViewportSessionInner {
     renderer: ViewportRenderer,
     camera: ViewportCamera,
+    scenes: HashMap<String, GpuScene>,
 }
 
 pub fn core_status() -> CoreStatus {
@@ -280,13 +295,94 @@ impl NativeViewportSession {
         let camera = ViewportCamera::default();
 
         Ok(Self {
-            inner: Mutex::new(NativeViewportSessionInner { renderer, camera }),
+            inner: Mutex::new(NativeViewportSessionInner {
+                renderer,
+                camera,
+                scenes: HashMap::new(),
+            }),
         })
     }
 
     pub fn resize(&self, width: u32, height: u32) -> Result<(), String> {
         let mut inner = self.lock_inner()?;
         inner.renderer.resize(width, height)
+    }
+
+    pub fn upsert_local_scene(
+        &self,
+        scene_key: String,
+        path: String,
+        meters_per_unit: f32,
+    ) -> Result<NativeSceneStatus, String> {
+        let format = detect_asset_format(&path);
+        let format_name = format!("{format:?}").to_ascii_lowercase();
+
+        match format {
+            AssetFormat::Glb | AssetFormat::Gltf => {
+                let scene = decode_gltf_scene(&path, meters_per_unit)?;
+                let status = NativeSceneStatus {
+                    scene_key: scene_key.clone(),
+                    path,
+                    format: format_name,
+                    readiness: "ready".to_owned(),
+                    loaded_to_gpu: true,
+                    mesh_count: scene.meshes.len() as u32,
+                    vertex_count: scene.vertex_count() as u64,
+                    index_count: scene.index_count() as u64,
+                    joint_count: scene.joint_count(),
+                    skinned_mesh_count: scene
+                        .meshes
+                        .iter()
+                        .filter(|mesh| mesh.skinned)
+                        .count() as u32,
+                };
+
+                let mut inner = self.lock_inner()?;
+                let gpu_scene = inner.renderer.upload_scene(&scene)?;
+                inner.scenes.insert(scene_key, gpu_scene);
+                Ok(status)
+            }
+            AssetFormat::Fbx => Ok(NativeSceneStatus {
+                scene_key,
+                path,
+                format: format_name,
+                readiness: "needs_fbx_decoder".to_owned(),
+                loaded_to_gpu: false,
+                mesh_count: 0,
+                vertex_count: 0,
+                index_count: 0,
+                joint_count: 0,
+                skinned_mesh_count: 0,
+            }),
+            _ => Ok(NativeSceneStatus {
+                scene_key,
+                path,
+                format: format_name,
+                readiness: "unsupported".to_owned(),
+                loaded_to_gpu: false,
+                mesh_count: 0,
+                vertex_count: 0,
+                index_count: 0,
+                joint_count: 0,
+                skinned_mesh_count: 0,
+            }),
+        }
+    }
+
+    pub fn remove_scene(&self, scene_key: String) -> Result<bool, String> {
+        let mut inner = self.lock_inner()?;
+        Ok(inner.scenes.remove(&scene_key).is_some())
+    }
+
+    pub fn clear_scenes(&self) -> Result<(), String> {
+        let mut inner = self.lock_inner()?;
+        inner.scenes.clear();
+        Ok(())
+    }
+
+    pub fn loaded_scene_count(&self) -> Result<u32, String> {
+        let inner = self.lock_inner()?;
+        Ok(inner.scenes.len() as u32)
     }
 
     pub fn render_clear(&self, color: BridgeColor) -> Result<(), String> {
