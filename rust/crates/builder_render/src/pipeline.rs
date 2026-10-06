@@ -7,25 +7,6 @@ pub struct MeshPipeline {
     pub camera_buffer: wgpu::Buffer,
     pub skin_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
-    pub fn write_skin_palette(
-        &self,
-        queue: &wgpu::Queue,
-        matrices: &[[[f32; 4]; 4]],
-    ) -> Result<(), String> {
-        if matrices.len() > MAX_SKIN_JOINTS {
-            return Err(format!(
-                "Rig contains {} joints; native viewport supports at most {}",
-                matrices.len(),
-                MAX_SKIN_JOINTS
-            ));
-        }
-        if matrices.is_empty() {
-            return Ok(());
-        }
-        queue.write_buffer(&self.skin_buffer, 0, bytemuck::cast_slice(matrices));
-        Ok(())
-    }
-
 }
 
 impl MeshPipeline {
@@ -41,7 +22,6 @@ impl MeshPipeline {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-
         let skin_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Fresh Builder Skin Palette"),
             size: (MAX_SKIN_JOINTS * 64) as u64,
@@ -75,26 +55,18 @@ impl MeshPipeline {
             ],
         });
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Fresh Builder Camera Bind Group"),
+            label: Some("Fresh Builder Camera Skin Bind Group"),
             layout: &layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: skin_buffer.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: skin_buffer.as_entire_binding() },
             ],
         });
-
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Fresh Builder Mesh Pipeline Layout"),
             bind_group_layouts: &[&layout],
             immediate_size: 0,
         });
-
         let vertex_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<GpuVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -106,7 +78,6 @@ impl MeshPipeline {
                 wgpu::VertexAttribute { offset: 48, shader_location: 4, format: wgpu::VertexFormat::Float32x4 },
             ],
         };
-
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Fresh Builder Mesh Pipeline"),
             layout: Some(&pipeline_layout),
@@ -134,5 +105,15 @@ impl MeshPipeline {
         });
 
         Self { pipeline, camera_buffer, skin_buffer, camera_bind_group }
+    }
+
+    pub fn write_skin_palette(&self, queue: &wgpu::Queue, matrices: &[[[f32; 4]; 4]]) -> Result<(), String> {
+        if matrices.len() > MAX_SKIN_JOINTS {
+            return Err(format!("Rig contains {} joints; native viewport supports at most {}", matrices.len(), MAX_SKIN_JOINTS));
+        }
+        if !matrices.is_empty() {
+            queue.write_buffer(&self.skin_buffer, 0, bytemuck::cast_slice(matrices));
+        }
+        Ok(())
     }
 }
