@@ -367,7 +367,11 @@ class _BuilderPageState extends State<BuilderPage> {
           width: desktop ? 220 : 176,
           child: _RigPanel(
             mode: _rigMode,
-            onModeChanged: (mode) => setState(() => _rigMode = mode),
+            onModeChanged: (mode) {
+              setState(() => _rigMode = mode);
+              _workspace.setRigVisible(mode != RigMode.none);
+            },
+            onToggleHand: _workspace.toggleHand,
           ),
         ),
       ],
@@ -435,7 +439,11 @@ class _BuilderPageState extends State<BuilderPage> {
           bottom: 10,
           child: _MobileRigBar(
             mode: _rigMode,
-            onModeChanged: (mode) => setState(() => _rigMode = mode),
+            onModeChanged: (mode) {
+              setState(() => _rigMode = mode);
+              _workspace.setRigVisible(mode != RigMode.none);
+            },
+            onToggleHand: _workspace.toggleHand,
           ),
         ),
       ],
@@ -615,10 +623,15 @@ class _CategoryRail extends StatelessWidget {
 }
 
 class _RigPanel extends StatelessWidget {
-  const _RigPanel({required this.mode, required this.onModeChanged});
+  const _RigPanel({
+    required this.mode,
+    required this.onModeChanged,
+    required this.onToggleHand,
+  });
 
   final RigMode mode;
   final ValueChanged<RigMode> onModeChanged;
+  final VoidCallback onToggleHand;
 
   @override
   Widget build(BuildContext context) {
@@ -654,9 +667,10 @@ class _RigPanel extends StatelessWidget {
                 onModeChanged(mode == RigMode.fk ? RigMode.none : RigMode.fk),
           ),
           const SizedBox(height: 7),
-          const _RigButton(
+          _RigButton(
             label: 'Hands',
             icon: Icons.pan_tool_alt_rounded,
+            onTap: onToggleHand,
           ),
           const Spacer(),
           Text(
@@ -672,10 +686,15 @@ class _RigPanel extends StatelessWidget {
 }
 
 class _MobileRigBar extends StatelessWidget {
-  const _MobileRigBar({required this.mode, required this.onModeChanged});
+  const _MobileRigBar({
+    required this.mode,
+    required this.onModeChanged,
+    required this.onToggleHand,
+  });
 
   final RigMode mode;
   final ValueChanged<RigMode> onModeChanged;
+  final VoidCallback onToggleHand;
 
   @override
   Widget build(BuildContext context) {
