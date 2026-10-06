@@ -186,6 +186,17 @@ mod tests {
     }
 
     #[test]
+    fn view_projection_is_finite_for_default_and_top_views() {
+        let mut camera = ViewportCamera::default();
+
+        for preset in [ViewPreset::Front, ViewPreset::Top, ViewPreset::Right] {
+            camera.set_preset(preset);
+            let matrix = camera.view_projection(16.0 / 9.0);
+            assert!(matrix.iter().flatten().all(|value| value.is_finite()));
+        }
+    }
+
+    #[test]
     fn presets_use_blender_style_cardinal_views() {
         let mut camera = ViewportCamera::default();
         camera.set_preset(ViewPreset::Right);
