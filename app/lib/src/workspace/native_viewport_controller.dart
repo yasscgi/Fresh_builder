@@ -7,7 +7,10 @@ import '../rust/api/builder.dart';
 class NativeViewportController extends ChangeNotifier {
   NativeViewportSession? _session;
   BridgeCameraState? _camera;
+  NativeSceneStatus? _sceneStatus;
   String? _error;
+  String? _pendingScenePath;
+  double _pendingMetersPerUnit = 1;
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -21,6 +24,7 @@ class NativeViewportController extends ChangeNotifier {
   bool get initializing => _initializing;
   String? get error => _error;
   BridgeCameraState? get camera => _camera;
+  NativeSceneStatus? get sceneStatus => _sceneStatus;
 
   Future<void> ensureInitialized({
     required double logicalWidth,
@@ -61,6 +65,7 @@ class NativeViewportController extends ChangeNotifier {
           a: 1,
         ),
       );
+      await _loadPendingScene();
     } catch (error) {
       _error = error.toString();
     } finally {
@@ -163,6 +168,53 @@ class NativeViewportController extends ChangeNotifier {
         unawaited(_flushZoom(sensitivity));
       }
     }
+  }
+
+  Future<void> loadLocalScene({
+    required String path,
+    required double metersPerUnit,
+  }) async {
+    _pendingScenePath = path;
+    _pendingMetersPerUnit =
+        metersPerUnit.isFinite && metersPerUnit > 0 ? metersPerUnit : 1;
+
+    if (_session == null) {
+      notifyListeners();
+      return;
+    }
+    await _loadPendingScene();
+  }
+
+  Future<void> _loadPendingScene() async {
+    final session = _session;
+    final path = _pendingScenePath;
+    if (session == null || path == null || path.isEmpty) return;
+
+    try {
+      _sceneStatus = await session.loadLocalScene(
+        path: path,
+        metersPerUnit: _pendingMetersPerUnit,
+      );
+      _error = null;
+      notifyListeners();
+    } catch (error) {
+      _error = error.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> clearScene() async {
+    _pendingScenePath = null;
+    _sceneStatus = null;
+    final session = _session;
+    if (session != null) {
+      try {
+        await session.clearScene();
+      } catch (error) {
+        _error = error.toString();
+      }
+    }
+    notifyListeners();
   }
 
   Future<void> setViewPreset(String preset) async {
