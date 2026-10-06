@@ -103,7 +103,6 @@ static void fresh_builder_pixel_texture_init(FreshBuilderPixelTexture* self) {
 
 struct _FreshBuilderViewportTexturePlugin {
   GObject parent_instance;
-  FlMethodChannel* channel;
   FlTextureRegistrar* texture_registrar;
   FreshBuilderPixelTexture* texture;
   int64_t texture_id;
@@ -135,7 +134,7 @@ static bool resolve_rust_bridge(FreshBuilderViewportTexturePlugin* self) {
 
   self->rust_module =
       dlopen(kRustLibraryName, RTLD_NOW | RTLD_NOLOAD | RTLD_LOCAL);
-  self->owns_rust_module = false;
+  self->owns_rust_module = self->rust_module != nullptr;
 
   if (self->rust_module == nullptr) {
     self->rust_module = dlopen(kRustLibraryName, RTLD_NOW | RTLD_LOCAL);
@@ -233,7 +232,6 @@ static void fresh_builder_viewport_texture_plugin_dispose(GObject* object) {
   auto* self = FRESH_BUILDER_VIEWPORT_TEXTURE_PLUGIN(object);
   dispose_texture(self);
 
-  g_clear_object(&self->channel);
   g_clear_object(&self->texture_registrar);
 
   if (self->owns_rust_module && self->rust_module != nullptr) {
@@ -254,7 +252,6 @@ static void fresh_builder_viewport_texture_plugin_class_init(
 
 static void fresh_builder_viewport_texture_plugin_init(
     FreshBuilderViewportTexturePlugin* self) {
-  self->channel = nullptr;
   self->texture_registrar = nullptr;
   self->texture = nullptr;
   self->texture_id = -1;
@@ -274,11 +271,13 @@ void fresh_builder_viewport_texture_plugin_register_with_registrar(
 
   g_autoptr(FlStandardMethodCodec) codec =
       fl_standard_method_codec_new();
-  self->channel = fl_method_channel_new(
+  g_autoptr(FlMethodChannel) channel = fl_method_channel_new(
       fl_plugin_registrar_get_messenger(registrar),
       kChannelName,
       FL_METHOD_CODEC(codec));
 
   fl_method_channel_set_method_call_handler(
-      self->channel, method_call_cb, self, g_object_unref);
+      channel, method_call_cb, g_object_ref(self), g_object_unref);
+
+  g_object_unref(self);
 }
