@@ -1,6 +1,6 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
 use builder_io::{decode_gltf_scene, detect_asset_format, inspect_scene_file, AssetFormat, ImportReadiness};
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::BTreeMap, sync::Mutex};
 
 use builder_render::{GpuScene, ViewPreset, ViewportCamera, ViewportRenderer};
 use flutter_rust_bridge::frb;
@@ -147,7 +147,7 @@ pub struct NativeViewportSession {
 struct NativeViewportSessionInner {
     renderer: ViewportRenderer,
     camera: ViewportCamera,
-    scenes: HashMap<String, GpuScene>,
+    scenes: BTreeMap<String, GpuScene>,
 }
 
 impl NativeViewportSessionInner {
@@ -313,7 +313,7 @@ impl NativeViewportSession {
             inner: Mutex::new(NativeViewportSessionInner {
                 renderer,
                 camera,
-                scenes: HashMap::new(),
+                scenes: BTreeMap::new(),
             }),
         })
     }
