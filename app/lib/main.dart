@@ -38,15 +38,16 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
     final scheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF7C3AED),
       brightness: brightness,
-      surface: dark ? const Color(0xFF121019) : const Color(0xFFF8F7FB),
+      surface: dark ? const Color(0xFF111427) : const Color(0xFFFFFFFF),
     );
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor:
-          dark ? const Color(0xFF0B0910) : const Color(0xFFF3F1F7),
-      dividerColor:
-          (dark ? Colors.white : Colors.black).withValues(alpha: 0.08),
+          dark ? const Color(0xFF090B19) : const Color(0xFFF7F7FB),
+      dividerColor: dark
+          ? const Color(0xFF8B5CF6).withValues(alpha: 0.18)
+          : const Color(0xFF7C3AED).withValues(alpha: 0.12),
     );
   }
 
