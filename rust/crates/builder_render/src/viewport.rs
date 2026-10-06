@@ -1,10 +1,12 @@
-use crate::{GpuAdapterInfo, GpuContext, GpuScene, RenderScene};
+use crate::{GpuAdapterInfo, GpuContext, GpuScene, MeshPipeline, RenderScene};
 
 const DEFAULT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 struct ViewportTarget {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
+    depth_texture: wgpu::Texture,
+    depth_view: wgpu::TextureView,
 }
 
 pub struct ViewportRenderer {
@@ -13,6 +15,7 @@ pub struct ViewportRenderer {
     width: u32,
     height: u32,
     format: wgpu::TextureFormat,
+    pipeline: MeshPipeline,
 }
 
 impl ViewportRenderer {
@@ -21,6 +24,7 @@ impl ViewportRenderer {
         let context = GpuContext::new().await?;
         let format = DEFAULT_FORMAT;
         let target = create_target(&context.device, width, height, format);
+        let pipeline = MeshPipeline::new(&context.device, format);
 
         Ok(Self {
             context,
@@ -28,6 +32,7 @@ impl ViewportRenderer {
             width,
             height,
             format,
+            pipeline,
         })
     }
 
@@ -94,6 +99,72 @@ impl ViewportRenderer {
         self.context.upload_scene(scene)
     }
 
+    pub fn render_scenes(
+        &self,
+        scenes: &[&GpuScene],
+        view_projection: [[f32; 4]; 4],
+        rgba: [f64; 4],
+    ) {
+        self.pipeline
+            .write_camera(&self.context.queue, &view_projection);
+
+        let mut encoder = self
+            .context
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Fresh Builder Scene Encoder"),
+            });
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Fresh Builder Scene Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.target.view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: rgba[0].clamp(0.0, 1.0),
+                            g: rgba[1].clamp(0.0, 1.0),
+                            b: rgba[2].clamp(0.0, 1.0),
+                            a: rgba[3].clamp(0.0, 1.0),
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.target.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    },
+                ),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            pass.set_pipeline(&self.pipeline.pipeline);
+            pass.set_bind_group(0, &self.pipeline.camera_bind_group, &[]);
+
+            for scene in scenes {
+                for mesh in &scene.meshes {
+                    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_index_buffer(
+                        mesh.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                }
+            }
+        }
+
+        self.context.queue.submit(Some(encoder.finish()));
+    }
+
     pub fn texture(&self) -> &wgpu::Texture {
         &self.target.texture
     }
@@ -123,8 +194,29 @@ fn create_target(
     });
 
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Fresh Builder Viewport Depth"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let depth_view =
+        depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    ViewportTarget { texture, view }
+    ViewportTarget {
+        texture,
+        view,
+        depth_texture,
+        depth_view,
+    }
 }
 
 fn validate_extent(width: u32, height: u32) -> Result<(), String> {
