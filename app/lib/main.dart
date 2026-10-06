@@ -1,29 +1,28 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'src/config/app_config.dart';
-import 'src/data/builder_repository.dart';
-import 'src/data/builder_runtime.dart';
+import 'src/cloud/builder_asset_disk_cache.dart';
+import 'src/cloud/builder_cloud_models.dart';
+import 'src/cloud/builder_cloud_repository.dart';
+import 'src/cloud/builder_product_repository.dart';
+import 'src/cloud/cloud_account_button.dart';
+import 'src/cloud/cloud_asset_dock.dart';
+import 'src/cloud/cloud_product_picker_button.dart';
+import 'src/cloud/supabase_bootstrap.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  if (AppConfig.hasSupabase) {
-    await Supabase.initialize(
-      url: AppConfig.supabaseUrl,
-      publishableKey: AppConfig.supabasePublishableKey,
-    );
-  }
-
-  runApp(const FreshBuilderApp());
+  final cloudReady = await FreshSupabaseBootstrap.initialize();
+  runApp(FreshBuilderApp(cloudReady: cloudReady));
 }
 
 enum RigMode { none, ik, fk }
 
 class FreshBuilderApp extends StatefulWidget {
-  const FreshBuilderApp({super.key});
+  const FreshBuilderApp({super.key, required this.cloudReady});
+
+  final bool cloudReady;
 
   @override
   State<FreshBuilderApp> createState() => _FreshBuilderAppState();
@@ -58,6 +57,7 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
       darkTheme: _theme(Brightness.dark),
       themeMode: _themeMode,
       home: BuilderPage(
+        cloudReady: widget.cloudReady,
         onToggleTheme: () => setState(() {
           _themeMode =
               _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
@@ -68,9 +68,14 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
 }
 
 class BuilderPage extends StatefulWidget {
-  const BuilderPage({super.key, required this.onToggleTheme});
+  const BuilderPage({
+    super.key,
+    required this.onToggleTheme,
+    required this.cloudReady,
+  });
 
   final VoidCallback onToggleTheme;
+  final bool cloudReady;
 
   @override
   State<BuilderPage> createState() => _BuilderPageState();
@@ -79,34 +84,188 @@ class BuilderPage extends StatefulWidget {
 class _BuilderPageState extends State<BuilderPage> {
   RigMode _rigMode = RigMode.none;
   int _selectedCategory = 0;
-  late final BuilderRuntime _runtime;
+  BuilderProductSummary? _selectedProduct;
+  BuilderCloudData? _cloudData;
+  BuilderAssetChoice? _selectedAsset;
+  CachedBuilderAsset? _cachedAsset;
+  BuilderAssetDiskCache? _assetCache;
+  bool _cloudLoading = false;
+  bool _assetLoading = false;
+  String? _cloudError;
+  String? _assetError;
 
-  @override
-  void initState() {
-    super.initState();
-    _runtime = BuilderRuntime(BuilderRepository(Supabase.instance.client));
-    _runtime.addListener(_onRuntimeChanged);
-    _runtime.load();
-  }
-
-  void _onRuntimeChanged() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _runtime.removeListener(_onRuntimeChanged);
-    _runtime.dispose();
-    super.dispose();
-  }
-
-  static const categories = <(IconData, String)>[
+  static const fallbackCategories = <(IconData, String)>[
     (Icons.accessibility_new_rounded, 'Pose'),
     (Icons.checkroom_rounded, 'Hat'),
     (Icons.shield_outlined, 'Back'),
     (Icons.sports_martial_arts_rounded, 'Hand'),
     (Icons.layers_rounded, 'Base'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.cloudReady) {
+      _assetCache = BuilderAssetDiskCache();
+    }
+  }
+
+  @override
+  void dispose() {
+    _assetCache?.dispose();
+    super.dispose();
+  }
+
+  List<BuilderCloudCategory?> get _cloudNavigationCategories {
+    final cloud = _cloudData;
+    if (cloud == null) return const <BuilderCloudCategory?>[];
+
+    final categories = <BuilderCloudCategory?>[...cloud.categories];
+    final characterMode = cloud.config?.mode == null ||
+        cloud.config?.mode == 'character';
+
+    if (characterMode &&
+        !cloud.categories.any((category) => category.type == 'pose')) {
+      categories.insert(0, null);
+    }
+    return categories;
+  }
+
+  List<(IconData, String)> get _navigationCategories {
+    final cloudCategories = _cloudNavigationCategories;
+    if (cloudCategories.isEmpty) return fallbackCategories;
+
+    return cloudCategories
+        .map(
+          (category) => category == null
+              ? (Icons.accessibility_new_rounded, 'Pose')
+              : (_iconForCategory(category), category.name),
+        )
+        .toList(growable: false);
+  }
+
+  BuilderCloudCategory? get _selectedCloudCategory {
+    final categories = _cloudNavigationCategories;
+    if (_selectedCategory < 0 || _selectedCategory >= categories.length) {
+      return null;
+    }
+    return categories[_selectedCategory];
+  }
+
+  List<BuilderCloudAsset> get _visibleAssets {
+    final cloud = _cloudData;
+    if (cloud == null) return const <BuilderCloudAsset>[];
+
+    final category = _selectedCloudCategory;
+    if (category == null) {
+      return cloud.assets
+          .where((asset) => asset.type == 'pose')
+          .toList(growable: false);
+    }
+
+    return cloud.assets
+        .where(
+          (asset) =>
+              asset.categoryId == category.id ||
+              asset.categorySlug == category.slug,
+        )
+        .toList(growable: false);
+  }
+
+  void _selectCategory(int index) {
+    setState(() {
+      _selectedCategory = index;
+      _selectedAsset = null;
+      _cachedAsset = null;
+      _assetError = null;
+      _assetLoading = false;
+    });
+  }
+
+  Future<void> _selectAsset(BuilderAssetChoice choice) async {
+    final selectionKey = choice.selectionKey;
+    setState(() {
+      _selectedAsset = choice;
+      _cachedAsset = null;
+      _assetError = null;
+      _assetLoading = choice.asset.type != 'pose';
+    });
+
+    if (choice.asset.type == 'pose') {
+      return;
+    }
+
+    final cache = _assetCache;
+    if (cache == null) {
+      if (!mounted) return;
+      setState(() {
+        _assetLoading = false;
+        _assetError = 'Cloud asset cache is unavailable.';
+      });
+      return;
+    }
+
+    try {
+      final local = await cache.getOrDownload(choice);
+      if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
+      setState(() {
+        _cachedAsset = local;
+        _assetLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
+      setState(() {
+        _assetLoading = false;
+        _assetError = error.toString();
+      });
+    }
+  }
+
+  IconData _iconForCategory(BuilderCloudCategory category) {
+    final value = '${category.slug} ${category.type}'.toLowerCase();
+    if (value.contains('pose')) return Icons.accessibility_new_rounded;
+    if (value.contains('hat') || value.contains('head')) {
+      return Icons.checkroom_rounded;
+    }
+    if (value.contains('base') || value.contains('stand')) {
+      return Icons.layers_rounded;
+    }
+    if (value.contains('hand') || value.contains('sword')) {
+      return Icons.sports_martial_arts_rounded;
+    }
+    if (value.contains('back')) return Icons.shield_outlined;
+    if (value.contains('svg')) return Icons.draw_rounded;
+    return Icons.category_outlined;
+  }
+
+  Future<void> _openProduct(BuilderProductSummary product) async {
+    setState(() {
+      _selectedProduct = product;
+      _cloudLoading = true;
+      _cloudError = null;
+      _selectedCategory = 0;
+      _selectedAsset = null;
+      _cachedAsset = null;
+      _assetError = null;
+      _assetLoading = false;
+    });
+
+    try {
+      final data = await BuilderCloudRepository().loadBuilderData(product.id);
+      if (!mounted || _selectedProduct?.id != product.id) return;
+      setState(() {
+        _cloudData = data;
+        _cloudLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || _selectedProduct?.id != product.id) return;
+      setState(() {
+        _cloudData = null;
+        _cloudLoading = false;
+        _cloudError = error.toString();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +279,9 @@ class _BuilderPageState extends State<BuilderPage> {
               children: [
                 _TopBar(
                   onToggleTheme: widget.onToggleTheme,
-                  runtime: _runtime,
+                  cloudReady: widget.cloudReady,
+                  selectedProduct: _selectedProduct,
+                  onProductSelected: _openProduct,
                 ),
                 Expanded(
                   child: compact
@@ -140,13 +301,38 @@ class _BuilderPageState extends State<BuilderPage> {
       children: [
         _CategoryRail(
           selected: _selectedCategory,
-          categories: categories,
-          onSelect: (index) => setState(() => _selectedCategory = index),
+          categories: _navigationCategories,
+          onSelect: _selectCategory,
         ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: BuilderViewport(rigMode: _rigMode),
+            child: Column(
+              children: [
+                Expanded(
+                  child: BuilderViewport(
+                    rigMode: _rigMode,
+                    productName: _selectedProduct?.name,
+                    assetCount: _cloudData?.assets.length,
+                    cloudLoading: _cloudLoading,
+                    cloudError: _cloudError,
+                    selectedAssetName: _selectedAsset?.name,
+                    localAssetPath: _cachedAsset?.file.path,
+                    assetCacheHit: _cachedAsset?.cacheHit,
+                    assetLoading: _assetLoading,
+                    assetError: _assetError,
+                  ),
+                ),
+                if (_cloudData != null) ...[
+                  const SizedBox(height: 8),
+                  CloudAssetDock(
+                    assets: _visibleAssets,
+                    selectedSelectionKey: _selectedAsset?.selectionKey,
+                    onSelected: _selectAsset,
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
         SizedBox(
@@ -163,7 +349,20 @@ class _BuilderPageState extends State<BuilderPage> {
   Widget _mobileLayout() {
     return Stack(
       children: [
-        Positioned.fill(child: BuilderViewport(rigMode: _rigMode)),
+        Positioned.fill(
+          child: BuilderViewport(
+            rigMode: _rigMode,
+            productName: _selectedProduct?.name,
+            assetCount: _cloudData?.assets.length,
+            cloudLoading: _cloudLoading,
+            cloudError: _cloudError,
+            selectedAssetName: _selectedAsset?.name,
+            localAssetPath: _cachedAsset?.file.path,
+            assetCacheHit: _cachedAsset?.cacheHit,
+            assetLoading: _assetLoading,
+            assetError: _assetError,
+          ),
+        ),
         Positioned(
           left: 8,
           top: 16,
@@ -171,10 +370,21 @@ class _BuilderPageState extends State<BuilderPage> {
           child: _CategoryRail(
             compact: true,
             selected: _selectedCategory,
-            categories: categories,
-            onSelect: (index) => setState(() => _selectedCategory = index),
+            categories: _navigationCategories,
+            onSelect: _selectCategory,
           ),
         ),
+        if (_cloudData != null)
+          Positioned(
+            left: 72,
+            right: 8,
+            bottom: 82,
+            child: CloudAssetDock(
+              assets: _visibleAssets,
+              selectedSelectionKey: _selectedAsset?.selectionKey,
+              onSelected: _selectAsset,
+            ),
+          ),
         Positioned(
           left: 72,
           right: 8,
@@ -192,11 +402,15 @@ class _BuilderPageState extends State<BuilderPage> {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.onToggleTheme,
-    required this.runtime,
+    required this.cloudReady,
+    required this.selectedProduct,
+    required this.onProductSelected,
   });
 
   final VoidCallback onToggleTheme;
-  final BuilderRuntime runtime;
+  final bool cloudReady;
+  final BuilderProductSummary? selectedProduct;
+  final ValueChanged<BuilderProductSummary> onProductSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -242,25 +456,43 @@ class _TopBar extends StatelessWidget {
             tooltip: 'Theme',
             onPressed: onToggleTheme,
           ),
+          CloudProductPickerButton(
+            cloudReady: cloudReady,
+            selectedProduct: selectedProduct,
+            onSelected: onProductSelected,
+          ),
+          CloudAccountButton(cloudReady: cloudReady),
           const SizedBox(width: 6),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
             decoration: BoxDecoration(
-              color: (runtime.error == null ? Colors.green : Colors.orange)
+              color: Colors.green.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: const Text(
+              'CORE BOOTSTRAP',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: Colors.greenAccent,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: (cloudReady ? Colors.cyan : Colors.orange)
                   .withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(99),
             ),
             child: Text(
-              runtime.loading
-                  ? 'SYNCING'
-                  : runtime.error != null
-                      ? 'DATA ERROR'
-                      : '${runtime.bundle?.assets.length ?? 0} ASSETS',
+              cloudReady ? 'CLOUD READY' : 'LOCAL MODE',
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
-                color: runtime.error == null
-                    ? Colors.greenAccent
+                color: cloudReady
+                    ? Colors.cyanAccent
                     : Colors.orangeAccent,
               ),
             ),
@@ -502,9 +734,30 @@ class _RigButton extends StatelessWidget {
 }
 
 class BuilderViewport extends StatelessWidget {
-  const BuilderViewport({super.key, required this.rigMode});
+  const BuilderViewport({
+    super.key,
+    required this.rigMode,
+    this.productName,
+    this.assetCount,
+    this.cloudLoading = false,
+    this.cloudError,
+    this.selectedAssetName,
+    this.localAssetPath,
+    this.assetCacheHit,
+    this.assetLoading = false,
+    this.assetError,
+  });
 
   final RigMode rigMode;
+  final String? productName;
+  final int? assetCount;
+  final bool cloudLoading;
+  final String? cloudError;
+  final String? selectedAssetName;
+  final String? localAssetPath;
+  final bool? assetCacheHit;
+  final bool assetLoading;
+  final String? assetError;
 
   @override
   Widget build(BuildContext context) {
@@ -529,6 +782,110 @@ class BuilderViewport extends StatelessWidget {
             right: 12,
             child: _ViewCube(),
           ),
+          if (productName != null)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 280),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: colors.surface.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (cloudLoading)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(
+                        cloudError == null
+                            ? Icons.cloud_done_rounded
+                            : Icons.cloud_off_rounded,
+                        size: 15,
+                        color: cloudError == null
+                            ? Colors.cyanAccent
+                            : colors.error,
+                      ),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        cloudError != null
+                            ? 'Cloud load failed'
+                            : '$productName · ${assetCount ?? 0} assets',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (selectedAssetName != null)
+            Positioned(
+              right: 14,
+              bottom: 14,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 300),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                decoration: BoxDecoration(
+                  color: colors.surface.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (assetLoading)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(
+                        assetError != null
+                            ? Icons.error_outline_rounded
+                            : localAssetPath != null
+                                ? Icons.storage_rounded
+                                : Icons.touch_app_rounded,
+                        size: 15,
+                        color: assetError != null
+                            ? colors.error
+                            : Colors.greenAccent,
+                      ),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        assetLoading
+                            ? 'Downloading $selectedAssetName'
+                            : assetError != null
+                                ? 'Asset download failed'
+                                : localAssetPath != null
+                                    ? '$selectedAssetName · ${assetCacheHit == true ? 'cached' : 'ready'}'
+                                    : selectedAssetName!,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Positioned(
             bottom: 14,
             left: 14,
