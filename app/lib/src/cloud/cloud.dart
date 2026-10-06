@@ -1,3 +1,4 @@
+export 'builder_asset_disk_cache.dart';
 export 'builder_asset_url_resolver.dart';
 export 'builder_cloud_models.dart';
 export 'builder_cloud_repository.dart';
