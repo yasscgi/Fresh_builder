@@ -70,7 +70,13 @@ impl MeshPipeline {
                 buffers: &[vertex_layout],
             },
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -87,5 +93,17 @@ impl MeshPipeline {
         });
 
         Self { pipeline, camera_buffer, camera_bind_group }
+    }
+
+    pub fn write_camera(
+        &self,
+        queue: &wgpu::Queue,
+        view_projection: &[[f32; 4]; 4],
+    ) {
+        queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(std::slice::from_ref(view_projection)),
+        );
     }
 }
