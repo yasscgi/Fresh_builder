@@ -11,6 +11,7 @@ import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
 import 'src/workspace/builder_workspace.dart';
+import 'src/workspace/current_builder_ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -306,7 +307,7 @@ class _BuilderPageState extends State<BuilderPage> {
   Widget _wideLayout({required bool desktop}) {
     return Row(
       children: [
-        _CategoryRail(
+        CurrentBuilderCategoryRail(
           selected: _selectedCategory,
           categories: _navigationCategories,
           onSelect: _selectCategory,
@@ -314,13 +315,10 @@ class _BuilderPageState extends State<BuilderPage> {
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: Column(
+            child: Stack(
               children: [
-                Expanded(
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: BuilderViewport(
+                Positioned.fill(
+                  child: BuilderViewport(
                     rigMode: _rigMode,
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
@@ -331,49 +329,96 @@ class _BuilderPageState extends State<BuilderPage> {
                     assetCacheHit: _cachedAsset?.cacheHit,
                     assetLoading: _assetLoading,
                     assetError: _assetError,
-                        ),
-                      ),
-                      Positioned(
-                        left: 10,
-                        top: 10,
-                        child: BuilderToolRail(controller: _workspace),
-                      ),
-                      Positioned(
-                        left: 10,
-                        bottom: 10,
-                        child: BuilderViewportStatus(
-                          controller: _workspace,
-                          assetName: _selectedAsset?.name,
-                          assetLoading: _assetLoading,
-                          cacheHit: _cachedAsset?.cacheHit,
-                        ),
-                      ),
-                    ],
                   ),
                 ),
-                if (_cloudData != null) ...[
-                  const SizedBox(height: 8),
-                  CloudAssetDock(
-                    assets: _visibleAssets,
-                    selectedSelectionKey: _selectedAsset?.selectionKey,
-                    onSelected: _selectAsset,
+                Positioned(
+                  left: desktop ? 16 : 8,
+                  top: desktop ? 54 : 38,
+                  child: BuilderToolRail(
+                    controller: _workspace,
+                    compact: !desktop,
                   ),
-                ],
+                ),
+                Positioned(
+                  right: 10,
+                  top: 8,
+                  child: CurrentBuilderViewControls(
+                    onView: (preset) => _workspace.setViewPreset(preset.name),
+                    onOrbit: (_, __) => _workspace.markOrbit(),
+                    disabled: _workspace.navigationLocked,
+                  ),
+                ),
+                if (!desktop)
+                  Positioned(
+                    right: 10,
+                    top: 96,
+                    child: ListenableBuilder(
+                      listenable: _workspace,
+                      builder: (context, _) => CurrentBuilderRigRail(
+                        tablet: true,
+                        ikActive: _rigMode == RigMode.ik,
+                        fkActive: _rigMode == RigMode.fk,
+                        handOpen: _workspace.handOpen,
+                        onIk: () {
+                          setState(() {
+                            _rigMode =
+                                _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
+                          });
+                          _workspace.setRigVisible(_rigMode != RigMode.none);
+                        },
+                        onFk: () {
+                          setState(() {
+                            _rigMode =
+                                _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
+                          });
+                          _workspace.setRigVisible(_rigMode != RigMode.none);
+                        },
+                        onOpenHand: () {
+                          if (!_workspace.handOpen) _workspace.toggleHand();
+                        },
+                        onCloseHand: () {
+                          if (_workspace.handOpen) _workspace.toggleHand();
+                        },
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: 16,
+                  bottom: _cloudData == null ? 14 : 168,
+                  child: BuilderViewportStatus(
+                    controller: _workspace,
+                    assetName: _selectedAsset?.name,
+                    assetLoading: _assetLoading,
+                    cacheHit: _cachedAsset?.cacheHit,
+                  ),
+                ),
+                if (_cloudData != null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: CloudAssetDock(
+                      assets: _visibleAssets,
+                      selectedSelectionKey: _selectedAsset?.selectionKey,
+                      onSelected: _selectAsset,
+                    ),
+                  ),
               ],
             ),
           ),
         ),
-        SizedBox(
-          width: desktop ? 220 : 176,
-          child: _RigPanel(
-            mode: _rigMode,
-            onModeChanged: (mode) {
-              setState(() => _rigMode = mode);
-              _workspace.setRigVisible(mode != RigMode.none);
-            },
-            onToggleHand: _workspace.toggleHand,
+        if (desktop)
+          SizedBox(
+            width: 332,
+            child: _RigPanel(
+              mode: _rigMode,
+              onModeChanged: (mode) {
+                setState(() => _rigMode = mode);
+                _workspace.setRigVisible(mode != RigMode.none);
+              },
+              onToggleHand: _workspace.toggleHand,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -396,14 +441,55 @@ class _BuilderPageState extends State<BuilderPage> {
           ),
         ),
         Positioned(
-          right: 8,
-          top: 12,
+          left: 0,
+          top: 44,
           child: BuilderToolRail(controller: _workspace, compact: true),
         ),
         Positioned(
-          left: 72,
-          top: 12,
-          right: 190,
+          right: 8,
+          top: 8,
+          child: CurrentBuilderViewControls(
+            onView: (preset) => _workspace.setViewPreset(preset.name),
+            onOrbit: (_, __) => _workspace.markOrbit(),
+            disabled: _workspace.navigationLocked,
+          ),
+        ),
+        Positioned(
+          right: 8,
+          top: 94,
+          child: ListenableBuilder(
+            listenable: _workspace,
+            builder: (context, _) => CurrentBuilderRigRail(
+              ikActive: _rigMode == RigMode.ik,
+              fkActive: _rigMode == RigMode.fk,
+              handOpen: _workspace.handOpen,
+              onIk: () {
+                setState(() {
+                  _rigMode =
+                      _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
+                });
+                _workspace.setRigVisible(_rigMode != RigMode.none);
+              },
+              onFk: () {
+                setState(() {
+                  _rigMode =
+                      _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
+                });
+                _workspace.setRigVisible(_rigMode != RigMode.none);
+              },
+              onOpenHand: () {
+                if (!_workspace.handOpen) _workspace.toggleHand();
+              },
+              onCloseHand: () {
+                if (_workspace.handOpen) _workspace.toggleHand();
+              },
+            ),
+          ),
+        ),
+        Positioned(
+          left: 52,
+          top: 8,
+          right: 92,
           child: BuilderViewportStatus(
             controller: _workspace,
             assetName: _selectedAsset?.name,
@@ -411,39 +497,26 @@ class _BuilderPageState extends State<BuilderPage> {
             cacheHit: _cachedAsset?.cacheHit,
           ),
         ),
-        Positioned(
-          left: 8,
-          top: 16,
-          bottom: 88,
-          child: _CategoryRail(
-            compact: true,
-            selected: _selectedCategory,
-            categories: _navigationCategories,
-            onSelect: _selectCategory,
-          ),
-        ),
         if (_cloudData != null)
           Positioned(
-            left: 72,
+            left: 8,
             right: 8,
-            bottom: 82,
+            bottom: 72,
             child: CloudAssetDock(
+              compact: true,
               assets: _visibleAssets,
               selectedSelectionKey: _selectedAsset?.selectionKey,
               onSelected: _selectAsset,
             ),
           ),
         Positioned(
-          left: 72,
-          right: 8,
-          bottom: 10,
-          child: _MobileRigBar(
-            mode: _rigMode,
-            onModeChanged: (mode) {
-              setState(() => _rigMode = mode);
-              _workspace.setRigVisible(mode != RigMode.none);
-            },
-            onToggleHand: _workspace.toggleHand,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: CurrentBuilderMobileCategoryNav(
+            selected: _selectedCategory,
+            categories: _navigationCategories,
+            onSelect: _selectCategory,
           ),
         ),
       ],
