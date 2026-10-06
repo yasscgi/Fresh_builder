@@ -342,10 +342,14 @@ class _BuilderPageState extends State<BuilderPage> {
                 Positioned(
                   right: 10,
                   top: 8,
-                  child: CurrentBuilderViewControls(
-                    onView: (preset) => _workspace.setViewPreset(preset.name),
-                    onOrbit: (_, __) => _workspace.markOrbit(),
-                    disabled: _workspace.navigationLocked,
+                  child: ListenableBuilder(
+                    listenable: _workspace,
+                    builder: (context, _) => CurrentBuilderViewControls(
+                      onView: (preset) =>
+                          _workspace.setViewPreset(preset.name),
+                      onOrbit: (_, __) => _workspace.markOrbit(),
+                      disabled: _workspace.navigationLocked,
+                    ),
                   ),
                 ),
                 if (!desktop)
@@ -398,6 +402,7 @@ class _BuilderPageState extends State<BuilderPage> {
                     right: 12,
                     bottom: 12,
                     child: CloudAssetDock(
+                      title: _selectedCloudCategory?.name ?? 'Pose',
                       assets: _visibleAssets,
                       selectedSelectionKey: _selectedAsset?.selectionKey,
                       onSelected: _selectAsset,
@@ -448,10 +453,13 @@ class _BuilderPageState extends State<BuilderPage> {
         Positioned(
           right: 8,
           top: 8,
-          child: CurrentBuilderViewControls(
-            onView: (preset) => _workspace.setViewPreset(preset.name),
-            onOrbit: (_, __) => _workspace.markOrbit(),
-            disabled: _workspace.navigationLocked,
+          child: ListenableBuilder(
+            listenable: _workspace,
+            builder: (context, _) => CurrentBuilderViewControls(
+              onView: (preset) => _workspace.setViewPreset(preset.name),
+              onOrbit: (_, __) => _workspace.markOrbit(),
+              disabled: _workspace.navigationLocked,
+            ),
           ),
         ),
         Positioned(
@@ -504,6 +512,7 @@ class _BuilderPageState extends State<BuilderPage> {
             bottom: 72,
             child: CloudAssetDock(
               compact: true,
+              title: _selectedCloudCategory?.name ?? 'Pose',
               assets: _visibleAssets,
               selectedSelectionKey: _selectedAsset?.selectionKey,
               onSelected: _selectAsset,
@@ -786,73 +795,6 @@ class _HeaderIconButton extends StatelessWidget {
             child: Icon(icon, size: 17),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _CategoryRail extends StatelessWidget {
-  const _CategoryRail({
-    required this.selected,
-    required this.categories,
-    required this.onSelect,
-    this.compact = false,
-  });
-
-  final int selected;
-  final List<(IconData, String)> categories;
-  final ValueChanged<int> onSelect;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      width: compact ? 56 : 74,
-      margin: compact ? EdgeInsets.zero : const EdgeInsets.all(8),
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      decoration: BoxDecoration(
-        color: colors.surface.withValues(alpha: compact ? 0.92 : 1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: ListView.builder(
-        padding: EdgeInsets.zero,
-        itemCount: categories.length,
-        itemBuilder: (context, index) {
-          final item = categories[index];
-          final active = index == selected;
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            child: Tooltip(
-              message: item.$2,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => onSelect(index),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  height: compact ? 44 : 54,
-                  decoration: BoxDecoration(
-                    color: active
-                        ? colors.primary.withValues(alpha: 0.18)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: active
-                          ? colors.primary.withValues(alpha: 0.55)
-                          : Colors.transparent,
-                    ),
-                  ),
-                  child: Icon(
-                    item.$1,
-                    size: 21,
-                    color: active ? colors.primary : colors.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
       ),
     );
   }
@@ -1183,117 +1125,6 @@ class _HandStateButton extends StatelessWidget {
   }
 }
 
-class _MobileRigBar extends StatelessWidget {
-  const _MobileRigBar({
-    required this.mode,
-    required this.onModeChanged,
-    required this.onToggleHand,
-  });
-
-  final RigMode mode;
-  final ValueChanged<RigMode> onModeChanged;
-  final VoidCallback onToggleHand;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _RigButton(
-              label: 'IK',
-              icon: Icons.open_with_rounded,
-              selected: mode == RigMode.ik,
-              onTap: () =>
-                  onModeChanged(mode == RigMode.ik ? RigMode.none : RigMode.ik),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _RigButton(
-              label: 'FK',
-              icon: Icons.rotate_right_rounded,
-              selected: mode == RigMode.fk,
-              onTap: () =>
-                  onModeChanged(mode == RigMode.fk ? RigMode.none : RigMode.fk),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: _RigButton(
-              label: 'Hand',
-              icon: Icons.pan_tool_alt_rounded,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RigButton extends StatelessWidget {
-  const _RigButton({
-    required this.label,
-    required this.icon,
-    this.selected = false,
-    this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: selected
-          ? colors.primary.withValues(alpha: 0.18)
-          : colors.surfaceContainerHighest.withValues(alpha: 0.4),
-      borderRadius: BorderRadius.circular(11),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(11),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 42),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(
-              color: selected
-                  ? colors.primary.withValues(alpha: 0.62)
-                  : Colors.transparent,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 17, color: selected ? colors.primary : null),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: selected ? colors.primary : null,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class BuilderViewport extends StatelessWidget {
   const BuilderViewport({
     super.key,
@@ -1343,34 +1174,6 @@ class BuilderViewport extends StatelessWidget {
           ),
           child: const SizedBox.expand(),
         ),
-      ),
-    );
-  }
-}
-
-class _ViewCube extends StatelessWidget {
-  const _ViewCube();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 64,
-      height: 64,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: const Stack(
-        alignment: Alignment.center,
-        children: [
-          Icon(Icons.view_in_ar_rounded, size: 29),
-          Positioned(top: 4, child: Text('TOP', style: TextStyle(fontSize: 8))),
-          Positioned(
-            bottom: 4,
-            child: Text('FRONT', style: TextStyle(fontSize: 8)),
-          ),
-        ],
       ),
     );
   }
