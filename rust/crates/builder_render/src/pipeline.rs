@@ -1,9 +1,31 @@
 use crate::GpuVertex;
 
+pub const MAX_SKIN_JOINTS: usize = 256;
+
 pub struct MeshPipeline {
     pub pipeline: wgpu::RenderPipeline,
     pub camera_buffer: wgpu::Buffer,
+    pub skin_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
+    pub fn write_skin_palette(
+        &self,
+        queue: &wgpu::Queue,
+        matrices: &[[[f32; 4]; 4]],
+    ) -> Result<(), String> {
+        if matrices.len() > MAX_SKIN_JOINTS {
+            return Err(format!(
+                "Rig contains {} joints; native viewport supports at most {}",
+                matrices.len(),
+                MAX_SKIN_JOINTS
+            ));
+        }
+        if matrices.is_empty() {
+            return Ok(());
+        }
+        queue.write_buffer(&self.skin_buffer, 0, bytemuck::cast_slice(matrices));
+        Ok(())
+    }
+
 }
 
 impl MeshPipeline {
@@ -20,26 +42,51 @@ impl MeshPipeline {
             mapped_at_creation: false,
         });
 
+        let skin_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fresh Builder Skin Palette"),
+            size: (MAX_SKIN_JOINTS * 64) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Fresh Builder Camera Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            label: Some("Fresh Builder Camera Skin Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Fresh Builder Camera Bind Group"),
             layout: &layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: skin_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -86,6 +133,6 @@ impl MeshPipeline {
             cache: None,
         });
 
-        Self { pipeline, camera_buffer, camera_bind_group }
+        Self { pipeline, camera_buffer, skin_buffer, camera_bind_group }
     }
 }
