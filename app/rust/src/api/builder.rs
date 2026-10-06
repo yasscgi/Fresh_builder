@@ -201,7 +201,7 @@ pub fn decode_local_scene(
         mesh_count: scene.meshes.len() as u32,
         vertex_count: scene.vertex_count() as u64,
         index_count: scene.index_count() as u64,
-        joint_count: scene.joint_count,
+        joint_count: scene.joint_count(),
         skinned_mesh_count: scene.meshes.iter().filter(|mesh| mesh.skinned).count() as u32,
     })
 }
