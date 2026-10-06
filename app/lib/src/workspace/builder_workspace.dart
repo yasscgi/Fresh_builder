@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'native_viewport_controller.dart';
+
 enum BuilderTool { select, move, rotate, scale }
 
 class BuilderWorkspaceController extends ChangeNotifier {
@@ -190,12 +192,14 @@ class BuilderViewportStatus extends StatelessWidget {
   const BuilderViewportStatus({
     super.key,
     required this.controller,
+    required this.nativeController,
     required this.assetName,
     required this.assetLoading,
     required this.cacheHit,
   });
 
   final BuilderWorkspaceController controller;
+  final NativeViewportController nativeController;
   final String? assetName;
   final bool assetLoading;
   final bool? cacheHit;
@@ -203,15 +207,26 @@ class BuilderViewportStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: controller,
+      listenable: Listenable.merge([controller, nativeController]),
       builder: (context, _) {
+        final nativeScene = nativeController.sceneStatus;
         final text = assetLoading
             ? 'Loading asset…'
-            : assetName == null
-                ? 'Select an asset'
-                : cacheHit == true
-                    ? '$assetName · cached'
-                    : assetName!;
+            : nativeController.error != null
+                ? 'Native viewport error'
+                : assetName == null
+                    ? nativeController.ready
+                        ? 'GPU viewport ready'
+                        : nativeController.initializing
+                            ? 'Starting GPU viewport…'
+                            : 'Select an asset'
+                    : nativeScene?.loadedToGpu == true
+                        ? '$assetName · GPU ready'
+                        : nativeScene?.readiness == 'needs_fbx_decoder'
+                            ? '$assetName · FBX decoder pending'
+                            : cacheHit == true
+                                ? '$assetName · cached'
+                                : assetName!;
 
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
@@ -236,7 +251,11 @@ class BuilderViewportStatus extends StatelessWidget {
                 Icon(
                   controller.navigationLocked
                       ? Icons.lock_rounded
-                      : Icons.view_in_ar_rounded,
+                      : nativeController.error != null
+                          ? Icons.error_outline_rounded
+                          : nativeController.sceneStatus?.loadedToGpu == true
+                              ? Icons.memory_rounded
+                              : Icons.view_in_ar_rounded,
                   size: 15,
                 ),
               const SizedBox(width: 6),
