@@ -1,5 +1,5 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
-use builder_io::{detect_asset_format, AssetFormat};
+use builder_io::{detect_asset_format, inspect_scene_file, AssetFormat, ImportReadiness};
 use std::sync::Mutex;
 
 use builder_render::{ViewPreset, ViewportCamera, ViewportRenderer};
@@ -96,6 +96,16 @@ pub struct LocalAssetInfo {
     pub supported_for_import: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct LocalSceneInfo {
+    pub path: String,
+    pub format: String,
+    pub byte_len: u64,
+    pub meters_per_unit: f32,
+    pub skinned: bool,
+    pub readiness: String,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum BridgeViewPreset {
     Front,
@@ -141,6 +151,28 @@ pub fn inspect_local_asset(path: String) -> LocalAssetInfo {
         format: format!("{format:?}").to_ascii_lowercase(),
         supported_for_import,
     }
+}
+
+pub fn inspect_local_scene(
+    path: String,
+    meters_per_unit: f32,
+    skinned: bool,
+) -> Result<LocalSceneInfo, String> {
+    let scene = inspect_scene_file(&path, meters_per_unit, skinned)?;
+    let readiness = match scene.readiness() {
+        ImportReadiness::Ready => "ready",
+        ImportReadiness::NeedsFbxDecoder => "needs_fbx_decoder",
+        ImportReadiness::Unsupported => "unsupported",
+    };
+
+    Ok(LocalSceneInfo {
+        path: scene.source_path,
+        format: format!("{:?}", scene.format).to_ascii_lowercase(),
+        byte_len: scene.byte_len,
+        meters_per_unit: scene.meters_per_unit,
+        skinned: scene.skinned,
+        readiness: readiness.to_owned(),
+    })
 }
 
 pub fn solve_ik_preview(input: BridgeIkInput) -> Option<BridgeIkResult> {
