@@ -16,3 +16,7 @@ flutter:
     platforms:
       windows:
         pluginClass: FreshBuilderViewportTexturePluginCApi
+      linux:
+        pluginClass: FreshBuilderViewportTexturePlugin
+      macos:
+        pluginClass: FreshBuilderViewportTexturePlugin
