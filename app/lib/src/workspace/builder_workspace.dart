@@ -9,6 +9,7 @@ class BuilderWorkspaceController extends ChangeNotifier {
   bool _handOpen = true;
   bool _busy = false;
   String? _status;
+  String _viewPreset = 'front';
 
   BuilderTool get tool => _tool;
   bool get navigationLocked => _navigationLocked;
@@ -16,6 +17,20 @@ class BuilderWorkspaceController extends ChangeNotifier {
   bool get handOpen => _handOpen;
   bool get busy => _busy;
   String? get status => _status;
+  String get viewPreset => _viewPreset;
+
+  void setViewPreset(String value) {
+    if (_viewPreset == value) return;
+    _viewPreset = value;
+    _status = '${value.toUpperCase()} view';
+    notifyListeners();
+  }
+
+  void markOrbit() {
+    if (_navigationLocked || _status == 'Orbit view') return;
+    _status = 'Orbit view';
+    notifyListeners();
+  }
 
   void selectTool(BuilderTool value) {
     if (_tool == value) return;
@@ -89,9 +104,10 @@ class BuilderToolRail extends StatelessWidget {
             borderRadius: BorderRadius.circular(13),
             border: Border.all(color: Theme.of(context).dividerColor),
           ),
-          child: compact
-              ? Row(mainAxisSize: MainAxisSize.min, children: _buttons(context))
-              : Column(mainAxisSize: MainAxisSize.min, children: _buttons(context)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: _buttons(context),
+          ),
         );
       },
     );
@@ -116,14 +132,54 @@ class BuilderToolRail extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Tooltip(
       message: tooltip,
-      child: IconButton(
-        visualDensity: VisualDensity.compact,
-        onPressed: () => controller.selectTool(tool),
-        icon: Icon(icon, size: 19),
-        style: IconButton.styleFrom(
-          foregroundColor: active ? colors.primary : colors.onSurfaceVariant,
-          backgroundColor:
-              active ? colors.primary.withValues(alpha: 0.16) : Colors.transparent,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: tool == BuilderTool.scale ? 0 : 4),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(compact ? 11 : 14),
+          onTap: () => controller.selectTool(tool),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            width: compact ? 42 : 54,
+            height: compact ? 44 : 58,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(compact ? 11 : 14),
+              color: active
+                  ? colors.primary
+                  : colors.surfaceContainerHighest.withValues(alpha: 0.28),
+              border: Border.all(
+                color: active
+                    ? colors.primary.withValues(alpha: 0.88)
+                    : Theme.of(context).dividerColor,
+              ),
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: colors.primary.withValues(alpha: 0.22),
+                        blurRadius: 18,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: compact ? 16 : 18,
+                  color: active ? Colors.white : colors.onSurfaceVariant,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  tooltip,
+                  style: TextStyle(
+                    fontSize: compact ? 7 : 8,
+                    fontWeight: FontWeight.w800,
+                    color: active ? Colors.white : colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

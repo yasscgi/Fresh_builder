@@ -11,11 +11,15 @@ class CloudAssetDock extends StatefulWidget {
     required this.assets,
     required this.selectedSelectionKey,
     required this.onSelected,
+    this.compact = false,
+    this.title,
   });
 
   final List<BuilderCloudAsset> assets;
   final String? selectedSelectionKey;
   final ValueChanged<BuilderAssetChoice> onSelected;
+  final bool compact;
+  final String? title;
 
   @override
   State<CloudAssetDock> createState() => _CloudAssetDockState();
@@ -56,26 +60,88 @@ class _CloudAssetDockState extends State<CloudAssetDock> {
       );
     }
 
+    final colors = Theme.of(context).colorScheme;
     return Container(
-      height: 112,
-      padding: const EdgeInsets.all(7),
+      height: widget.compact ? 108 : 150,
       decoration: _decoration(context),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: widget.assets.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 7),
-        itemBuilder: (context, index) {
-          final asset = widget.assets[index];
-          final selected = widget.selectedSelectionKey == asset.id ||
-              widget.selectedSelectionKey?.startsWith('${asset.id}|') == true;
+      child: Column(
+        children: [
+          SizedBox(
+            height: widget.compact ? 30 : 44,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.compact ? 9 : 12,
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    widget.title ?? 'Assets',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: widget.compact ? 9 : 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: widget.compact ? 6 : 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${widget.assets.length}',
+                      style: TextStyle(
+                        fontSize: widget.compact ? 7 : 8,
+                        fontWeight: FontWeight.w900,
+                        color: colors.primary,
+                      ),
+                    ),
+                  ),
+                  if (!widget.compact) ...[
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.grid_view_rounded,
+                      size: 14,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          Divider(height: 1, color: Theme.of(context).dividerColor),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.all(widget.compact ? 5 : 8),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: widget.assets.length,
+                separatorBuilder: (_, __) =>
+                    SizedBox(width: widget.compact ? 5 : 7),
+                itemBuilder: (context, index) {
+                  final asset = widget.assets[index];
+                  final selected = widget.selectedSelectionKey == asset.id ||
+                      widget.selectedSelectionKey
+                              ?.startsWith('${asset.id}|') ==
+                          true;
 
-          return _AssetCard(
-            asset: asset,
-            selected: selected,
-            resolver: _resolver,
-            onTap: () => _selectAsset(context, asset),
-          );
-        },
+                  return _AssetCard(
+                    asset: asset,
+                    selected: selected,
+                    resolver: _resolver,
+                    compact: widget.compact,
+                    onTap: () => _selectAsset(context, asset),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -130,8 +196,15 @@ class _CloudAssetDockState extends State<CloudAssetDock> {
   BoxDecoration _decoration(BuildContext context) {
     return BoxDecoration(
       color: Theme.of(context).colorScheme.surface,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(20),
       border: Border.all(color: Theme.of(context).dividerColor),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.09),
+          blurRadius: 28,
+          offset: const Offset(0, -6),
+        ),
+      ],
     );
   }
 }
@@ -142,19 +215,21 @@ class _AssetCard extends StatelessWidget {
     required this.selected,
     required this.resolver,
     required this.onTap,
+    required this.compact,
   });
 
   final BuilderCloudAsset asset;
   final bool selected;
   final BuilderAssetUrlResolver? resolver;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
     return SizedBox(
-      width: 92,
+      width: compact ? 64 : 86,
       child: Material(
         color: selected
             ? colors.primary.withValues(alpha: 0.16)
@@ -164,7 +239,7 @@ class _AssetCard extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(11),
           child: Container(
-            padding: const EdgeInsets.all(5),
+            padding: EdgeInsets.all(compact ? 3 : 5),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(11),
               border: Border.all(
@@ -181,16 +256,16 @@ class _AssetCard extends StatelessWidget {
                   asset.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10,
+                  style: TextStyle(
+                    fontSize: compact ? 7 : 8,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 if (asset.variations.isNotEmpty)
                   Text(
-                    '${asset.variations.length} variations',
+                    '${asset.variations.length}',
                     style: TextStyle(
-                      fontSize: 8,
+                      fontSize: compact ? 7 : 8,
                       color: colors.onSurfaceVariant,
                     ),
                   ),

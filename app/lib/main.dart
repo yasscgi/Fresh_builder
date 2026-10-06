@@ -11,6 +11,7 @@ import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
 import 'src/workspace/builder_workspace.dart';
+import 'src/workspace/current_builder_ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,15 +38,16 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
     final scheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF7C3AED),
       brightness: brightness,
-      surface: dark ? const Color(0xFF121019) : const Color(0xFFF8F7FB),
+      surface: dark ? const Color(0xFF111427) : const Color(0xFFFFFFFF),
     );
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor:
-          dark ? const Color(0xFF0B0910) : const Color(0xFFF3F1F7),
-      dividerColor:
-          (dark ? Colors.white : Colors.black).withValues(alpha: 0.08),
+          dark ? const Color(0xFF090B19) : const Color(0xFFF7F7FB),
+      dividerColor: dark
+          ? const Color(0xFF8B5CF6).withValues(alpha: 0.18)
+          : const Color(0xFF7C3AED).withValues(alpha: 0.12),
     );
   }
 
@@ -306,7 +308,7 @@ class _BuilderPageState extends State<BuilderPage> {
   Widget _wideLayout({required bool desktop}) {
     return Row(
       children: [
-        _CategoryRail(
+        CurrentBuilderCategoryRail(
           selected: _selectedCategory,
           categories: _navigationCategories,
           onSelect: _selectCategory,
@@ -314,13 +316,10 @@ class _BuilderPageState extends State<BuilderPage> {
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: Column(
+            child: Stack(
               children: [
-                Expanded(
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: BuilderViewport(
+                Positioned.fill(
+                  child: BuilderViewport(
                     rigMode: _rigMode,
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
@@ -331,49 +330,101 @@ class _BuilderPageState extends State<BuilderPage> {
                     assetCacheHit: _cachedAsset?.cacheHit,
                     assetLoading: _assetLoading,
                     assetError: _assetError,
-                        ),
-                      ),
-                      Positioned(
-                        left: 10,
-                        top: 10,
-                        child: BuilderToolRail(controller: _workspace),
-                      ),
-                      Positioned(
-                        left: 10,
-                        bottom: 10,
-                        child: BuilderViewportStatus(
-                          controller: _workspace,
-                          assetName: _selectedAsset?.name,
-                          assetLoading: _assetLoading,
-                          cacheHit: _cachedAsset?.cacheHit,
-                        ),
-                      ),
-                    ],
                   ),
                 ),
-                if (_cloudData != null) ...[
-                  const SizedBox(height: 8),
-                  CloudAssetDock(
-                    assets: _visibleAssets,
-                    selectedSelectionKey: _selectedAsset?.selectionKey,
-                    onSelected: _selectAsset,
+                Positioned(
+                  left: desktop ? 16 : 8,
+                  top: desktop ? 54 : 38,
+                  child: BuilderToolRail(
+                    controller: _workspace,
+                    compact: !desktop,
                   ),
-                ],
+                ),
+                Positioned(
+                  right: 10,
+                  top: 8,
+                  child: ListenableBuilder(
+                    listenable: _workspace,
+                    builder: (context, _) => CurrentBuilderViewControls(
+                      onView: (preset) =>
+                          _workspace.setViewPreset(preset.name),
+                      onOrbit: (_, __) => _workspace.markOrbit(),
+                      disabled: _workspace.navigationLocked,
+                    ),
+                  ),
+                ),
+                if (!desktop)
+                  Positioned(
+                    right: 10,
+                    top: 96,
+                    child: ListenableBuilder(
+                      listenable: _workspace,
+                      builder: (context, _) => CurrentBuilderRigRail(
+                        tablet: true,
+                        ikActive: _rigMode == RigMode.ik,
+                        fkActive: _rigMode == RigMode.fk,
+                        handOpen: _workspace.handOpen,
+                        onIk: () {
+                          setState(() {
+                            _rigMode =
+                                _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
+                          });
+                          _workspace.setRigVisible(_rigMode != RigMode.none);
+                        },
+                        onFk: () {
+                          setState(() {
+                            _rigMode =
+                                _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
+                          });
+                          _workspace.setRigVisible(_rigMode != RigMode.none);
+                        },
+                        onOpenHand: () {
+                          if (!_workspace.handOpen) _workspace.toggleHand();
+                        },
+                        onCloseHand: () {
+                          if (_workspace.handOpen) _workspace.toggleHand();
+                        },
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: 16,
+                  bottom: _cloudData == null ? 14 : 168,
+                  child: BuilderViewportStatus(
+                    controller: _workspace,
+                    assetName: _selectedAsset?.name,
+                    assetLoading: _assetLoading,
+                    cacheHit: _cachedAsset?.cacheHit,
+                  ),
+                ),
+                if (_cloudData != null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: CloudAssetDock(
+                      title: _selectedCloudCategory?.name ?? 'Pose',
+                      assets: _visibleAssets,
+                      selectedSelectionKey: _selectedAsset?.selectionKey,
+                      onSelected: _selectAsset,
+                    ),
+                  ),
               ],
             ),
           ),
         ),
-        SizedBox(
-          width: desktop ? 220 : 176,
-          child: _RigPanel(
-            mode: _rigMode,
-            onModeChanged: (mode) {
-              setState(() => _rigMode = mode);
-              _workspace.setRigVisible(mode != RigMode.none);
-            },
-            onToggleHand: _workspace.toggleHand,
+        if (desktop)
+          SizedBox(
+            width: 332,
+            child: _RigPanel(
+              mode: _rigMode,
+              onModeChanged: (mode) {
+                setState(() => _rigMode = mode);
+                _workspace.setRigVisible(mode != RigMode.none);
+              },
+              workspace: _workspace,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -396,14 +447,58 @@ class _BuilderPageState extends State<BuilderPage> {
           ),
         ),
         Positioned(
-          right: 8,
-          top: 12,
+          left: 0,
+          top: 44,
           child: BuilderToolRail(controller: _workspace, compact: true),
         ),
         Positioned(
-          left: 72,
-          top: 12,
-          right: 190,
+          right: 8,
+          top: 8,
+          child: ListenableBuilder(
+            listenable: _workspace,
+            builder: (context, _) => CurrentBuilderViewControls(
+              onView: (preset) => _workspace.setViewPreset(preset.name),
+              onOrbit: (_, __) => _workspace.markOrbit(),
+              disabled: _workspace.navigationLocked,
+            ),
+          ),
+        ),
+        Positioned(
+          right: 8,
+          top: 94,
+          child: ListenableBuilder(
+            listenable: _workspace,
+            builder: (context, _) => CurrentBuilderRigRail(
+              ikActive: _rigMode == RigMode.ik,
+              fkActive: _rigMode == RigMode.fk,
+              handOpen: _workspace.handOpen,
+              onIk: () {
+                setState(() {
+                  _rigMode =
+                      _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
+                });
+                _workspace.setRigVisible(_rigMode != RigMode.none);
+              },
+              onFk: () {
+                setState(() {
+                  _rigMode =
+                      _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
+                });
+                _workspace.setRigVisible(_rigMode != RigMode.none);
+              },
+              onOpenHand: () {
+                if (!_workspace.handOpen) _workspace.toggleHand();
+              },
+              onCloseHand: () {
+                if (_workspace.handOpen) _workspace.toggleHand();
+              },
+            ),
+          ),
+        ),
+        Positioned(
+          left: 52,
+          top: 8,
+          right: 92,
           child: BuilderViewportStatus(
             controller: _workspace,
             assetName: _selectedAsset?.name,
@@ -411,39 +506,27 @@ class _BuilderPageState extends State<BuilderPage> {
             cacheHit: _cachedAsset?.cacheHit,
           ),
         ),
-        Positioned(
-          left: 8,
-          top: 16,
-          bottom: 88,
-          child: _CategoryRail(
-            compact: true,
-            selected: _selectedCategory,
-            categories: _navigationCategories,
-            onSelect: _selectCategory,
-          ),
-        ),
         if (_cloudData != null)
           Positioned(
-            left: 72,
+            left: 8,
             right: 8,
-            bottom: 82,
+            bottom: 72,
             child: CloudAssetDock(
+              compact: true,
+              title: _selectedCloudCategory?.name ?? 'Pose',
               assets: _visibleAssets,
               selectedSelectionKey: _selectedAsset?.selectionKey,
               onSelected: _selectAsset,
             ),
           ),
         Positioned(
-          left: 72,
-          right: 8,
-          bottom: 10,
-          child: _MobileRigBar(
-            mode: _rigMode,
-            onModeChanged: (mode) {
-              setState(() => _rigMode = mode);
-              _workspace.setRigVisible(mode != RigMode.none);
-            },
-            onToggleHand: _workspace.toggleHand,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: CurrentBuilderMobileCategoryNav(
+            selected: _selectedCategory,
+            categories: _navigationCategories,
+            onSelect: _selectCategory,
           ),
         ),
       ],
@@ -467,86 +550,213 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 1120;
+        final height = desktop ? 66.0 : 58.0;
+
+        return Container(
+          height: height,
+          padding: EdgeInsets.symmetric(horizontal: desktop ? 16 : 10),
+          decoration: BoxDecoration(
+            color: colors.surface.withValues(alpha: 0.96),
+            border: Border(
+              bottom: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.055),
+                blurRadius: 30,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: desktop ? 230 : 132,
+                child: Row(
+                  children: [
+                    Container(
+                      width: desktop ? 40 : 34,
+                      height: desktop ? 40 : 34,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: colors.primary.withValues(alpha: 0.10),
+                        border: Border.all(
+                          color: colors.primary.withValues(alpha: 0.46),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: colors.primary.withValues(alpha: 0.18),
+                            blurRadius: 18,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.view_in_ar_rounded,
+                        size: desktop ? 22 : 19,
+                        color: colors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            maxLines: 1,
+                            text: TextSpan(
+                              style: TextStyle(
+                                fontSize: desktop ? 20 : 16,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.6,
+                                color: colors.onSurface,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Fresh'),
+                                TextSpan(
+                                  text: 'STL',
+                                  style: TextStyle(color: colors.primary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (desktop)
+                            Text(
+                              'POSE · CUSTOMIZE · PRINT',
+                              style: TextStyle(
+                                fontSize: 6.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2.1,
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (desktop)
+                Expanded(
+                  child: Center(
+                    child: Container(
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: colors.surface.withValues(alpha: 0.86),
+                        borderRadius: BorderRadius.circular(15),
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _HeaderModeChip(
+                            label: 'Builder',
+                            icon: Icons.view_in_ar_rounded,
+                            active: true,
+                          ),
+                          const _HeaderModeChip(
+                            label: 'Product',
+                            icon: Icons.inventory_2_outlined,
+                          ),
+                          const _HeaderModeChip(
+                            label: 'Render',
+                            icon: Icons.image_outlined,
+                          ),
+                          const _HeaderModeChip(
+                            label: 'Export',
+                            icon: Icons.download_rounded,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                const Spacer(),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _HeaderIconButton(
+                    icon: Icons.undo_rounded,
+                    tooltip: 'Undo',
+                    onPressed: () {},
+                  ),
+                  _HeaderIconButton(
+                    icon: Icons.redo_rounded,
+                    tooltip: 'Redo',
+                    onPressed: () {},
+                  ),
+                  _HeaderIconButton(
+                    icon: Icons.brightness_6_rounded,
+                    tooltip: 'Theme',
+                    onPressed: onToggleTheme,
+                  ),
+                  if (desktop || constraints.maxWidth >= 430)
+                    CloudProductPickerButton(
+                      cloudReady: cloudReady,
+                      selectedProduct: selectedProduct,
+                      onSelected: onProductSelected,
+                    ),
+                  CloudAccountButton(cloudReady: cloudReady),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _HeaderModeChip extends StatelessWidget {
+  const _HeaderModeChip({
+    required this.label,
+    required this.icon,
+    this.active = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Container(
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      height: 44,
+      constraints: const BoxConstraints(minWidth: 108),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor),
-        ),
+        gradient: active
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  colors.primary.withValues(alpha: 0.92),
+                  colors.primary,
+                ],
+              )
+            : null,
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: colors.primary,
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: const Icon(Icons.auto_awesome_rounded, size: 18),
+          Icon(
+            icon,
+            size: 14,
+            color: active ? Colors.white : colors.onSurfaceVariant,
           ),
-          const SizedBox(width: 10),
-          const Text(
-            'Fresh Builder',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.undo_rounded, size: 19),
-            tooltip: 'Undo',
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.redo_rounded, size: 19),
-            tooltip: 'Redo',
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.brightness_6_rounded, size: 19),
-            tooltip: 'Theme',
-            onPressed: onToggleTheme,
-          ),
-          CloudProductPickerButton(
-            cloudReady: cloudReady,
-            selectedProduct: selectedProduct,
-            onSelected: onProductSelected,
-          ),
-          CloudAccountButton(cloudReady: cloudReady),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: const Text(
-              'CORE BOOTSTRAP',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: Colors.greenAccent,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: (cloudReady ? Colors.cyan : Colors.orange)
-                  .withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: Text(
-              cloudReady ? 'CLOUD READY' : 'LOCAL MODE',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: cloudReady
-                    ? Colors.cyanAccent
-                    : Colors.orangeAccent,
-              ),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: active ? Colors.white : colors.onSurfaceVariant,
             ),
           ),
         ],
@@ -555,68 +765,37 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _CategoryRail extends StatelessWidget {
-  const _CategoryRail({
-    required this.selected,
-    required this.categories,
-    required this.onSelect,
-    this.compact = false,
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
   });
 
-  final int selected;
-  final List<(IconData, String)> categories;
-  final ValueChanged<int> onSelect;
-  final bool compact;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      width: compact ? 56 : 74,
-      margin: compact ? EdgeInsets.zero : const EdgeInsets.all(8),
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      decoration: BoxDecoration(
-        color: colors.surface.withValues(alpha: compact ? 0.92 : 1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: ListView.builder(
-        padding: EdgeInsets.zero,
-        itemCount: categories.length,
-        itemBuilder: (context, index) {
-          final item = categories[index];
-          final active = index == selected;
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            child: Tooltip(
-              message: item.$2,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => onSelect(index),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  height: compact ? 44 : 54,
-                  decoration: BoxDecoration(
-                    color: active
-                        ? colors.primary.withValues(alpha: 0.18)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: active
-                          ? colors.primary.withValues(alpha: 0.55)
-                          : Colors.transparent,
-                    ),
-                  ),
-                  child: Icon(
-                    item.$1,
-                    size: 21,
-                    color: active ? colors.primary : colors.onSurfaceVariant,
-                  ),
-                ),
-              ),
+    return Padding(
+      padding: const EdgeInsets.only(right: 5),
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.88),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Theme.of(context).dividerColor),
             ),
-          );
-        },
+            child: Icon(icon, size: 17),
+          ),
+        ),
       ),
     );
   }
@@ -626,170 +805,321 @@ class _RigPanel extends StatelessWidget {
   const _RigPanel({
     required this.mode,
     required this.onModeChanged,
-    required this.onToggleHand,
+    required this.workspace,
   });
 
   final RigMode mode;
   final ValueChanged<RigMode> onModeChanged;
-  final VoidCallback onToggleHand;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(0, 8, 8, 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'POSE RIG',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 10),
-          _RigButton(
-            label: 'IK',
-            icon: Icons.open_with_rounded,
-            selected: mode == RigMode.ik,
-            onTap: () =>
-                onModeChanged(mode == RigMode.ik ? RigMode.none : RigMode.ik),
-          ),
-          const SizedBox(height: 7),
-          _RigButton(
-            label: 'FK',
-            icon: Icons.rotate_right_rounded,
-            selected: mode == RigMode.fk,
-            onTap: () =>
-                onModeChanged(mode == RigMode.fk ? RigMode.none : RigMode.fk),
-          ),
-          const SizedBox(height: 7),
-          _RigButton(
-            label: 'Hands',
-            icon: Icons.pan_tool_alt_rounded,
-            onTap: onToggleHand,
-          ),
-          const Spacer(),
-          Text(
-            'Flutter owns UI. Live rig state and final pose commits belong to Rust.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MobileRigBar extends StatelessWidget {
-  const _MobileRigBar({
-    required this.mode,
-    required this.onModeChanged,
-    required this.onToggleHand,
-  });
-
-  final RigMode mode;
-  final ValueChanged<RigMode> onModeChanged;
-  final VoidCallback onToggleHand;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _RigButton(
-              label: 'IK',
-              icon: Icons.open_with_rounded,
-              selected: mode == RigMode.ik,
-              onTap: () =>
-                  onModeChanged(mode == RigMode.ik ? RigMode.none : RigMode.ik),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _RigButton(
-              label: 'FK',
-              icon: Icons.rotate_right_rounded,
-              selected: mode == RigMode.fk,
-              onTap: () =>
-                  onModeChanged(mode == RigMode.fk ? RigMode.none : RigMode.fk),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: _RigButton(
-              label: 'Hand',
-              icon: Icons.pan_tool_alt_rounded,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RigButton extends StatelessWidget {
-  const _RigButton({
-    required this.label,
-    required this.icon,
-    this.selected = false,
-    this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback? onTap;
+  final BuilderWorkspaceController workspace;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: selected
-          ? colors.primary.withValues(alpha: 0.18)
-          : colors.surfaceContainerHighest.withValues(alpha: 0.4),
-      borderRadius: BorderRadius.circular(11),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(11),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 42),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(
-              color: selected
-                  ? colors.primary.withValues(alpha: 0.62)
-                  : Colors.transparent,
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.985),
+        border: Border(
+          left: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 42,
+            offset: const Offset(-14, 0),
+          ),
+        ],
+      ),
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: colors.primary.withValues(alpha: 0.18),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: colors.primary.withValues(alpha: 0.07),
+                  blurRadius: 22,
+                ),
+              ],
+            ),
+            child: ListenableBuilder(
+              listenable: workspace,
+              builder: (context, _) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Pose & Rig',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      mode == RigMode.none
+                          ? 'Rig controls'
+                          : '${mode.name.toUpperCase()} active',
+                      style: TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: colors.surfaceContainerHighest.withValues(alpha: 0.38),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _SegmentRigButton(
+                              label: 'IK',
+                              selected: mode == RigMode.ik,
+                              onTap: () => onModeChanged(
+                                mode == RigMode.ik ? RigMode.none : RigMode.ik,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: _SegmentRigButton(
+                              label: 'FK',
+                              selected: mode == RigMode.fk,
+                              onTap: () => onModeChanged(
+                                mode == RigMode.fk ? RigMode.none : RigMode.fk,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {},
+                      child: Container(
+                        minHeight: 52,
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainerHighest.withValues(alpha: 0.24),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Theme.of(context).dividerColor),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: colors.primary.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Icon(
+                                Icons.auto_awesome_rounded,
+                                size: 17,
+                                color: colors.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 9),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'POSE',
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1.1,
+                                    ),
+                                  ),
+                                  SizedBox(height: 2),
+                                  Text(
+                                    'Default',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Hands',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _HandStateButton(
+                            label: 'Open',
+                            selected: workspace.handOpen,
+                            onTap: () {
+                              if (!workspace.handOpen) workspace.toggleHand();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: _HandStateButton(
+                            label: 'Close',
+                            selected: !workspace.handOpen,
+                            onTap: () {
+                              if (workspace.handOpen) workspace.toggleHand();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          const SizedBox(height: 12),
+          Row(
             children: [
-              Icon(icon, size: 17, color: selected ? colors.primary : null),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: selected ? colors.primary : null,
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.face_retouching_natural_rounded, size: 16),
+                  label: const Text('Face'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.print_rounded, size: 16),
+                  label: const Text('Print / Export'),
                 ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentRigButton extends StatelessWidget {
+  const _SegmentRigButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(9),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? colors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: colors.primary.withValues(alpha: 0.24),
+                    blurRadius: 16,
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            color: selected ? Colors.white : colors.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HandStateButton extends StatelessWidget {
+  const _HandStateButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        minHeight: 58,
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.primary.withValues(alpha: 0.16)
+              : colors.surfaceContainerHighest.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? colors.primary.withValues(alpha: 0.82)
+                : Theme.of(context).dividerColor,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              label == 'Open'
+                  ? Icons.pan_tool_alt_rounded
+                  : Icons.back_hand_outlined,
+              size: 19,
+              color: selected ? colors.primary : colors.onSurfaceVariant,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                color: selected ? colors.primary : colors.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -827,176 +1157,24 @@ class BuilderViewport extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _ViewportPainter(
-                grid: Theme.of(context).dividerColor,
-                accent: colors.primary,
-                foreground: colors.onSurface,
-                showRig: rigMode != RigMode.none,
-                ik: rigMode == RigMode.ik,
-              ),
-            ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFF090B19)
+              : const Color(0xFFF7F7FB),
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: CustomPaint(
+          painter: _ViewportPainter(
+            grid: Theme.of(context).dividerColor,
+            accent: colors.primary,
+            foreground: colors.onSurface,
+            showRig: rigMode != RigMode.none,
+            ik: rigMode == RigMode.ik,
           ),
-          const Positioned(
-            top: 12,
-            right: 12,
-            child: _ViewCube(),
-          ),
-          if (productName != null)
-            Positioned(
-              top: 12,
-              left: 12,
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 280),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: colors.surface.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (cloudLoading)
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      Icon(
-                        cloudError == null
-                            ? Icons.cloud_done_rounded
-                            : Icons.cloud_off_rounded,
-                        size: 15,
-                        color: cloudError == null
-                            ? Colors.cyanAccent
-                            : colors.error,
-                      ),
-                    const SizedBox(width: 7),
-                    Flexible(
-                      child: Text(
-                        cloudError != null
-                            ? 'Cloud load failed'
-                            : '$productName · ${assetCount ?? 0} assets',
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          if (selectedAssetName != null)
-            Positioned(
-              right: 14,
-              bottom: 14,
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 300),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-                decoration: BoxDecoration(
-                  color: colors.surface.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (assetLoading)
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      Icon(
-                        assetError != null
-                            ? Icons.error_outline_rounded
-                            : localAssetPath != null
-                                ? Icons.storage_rounded
-                                : Icons.touch_app_rounded,
-                        size: 15,
-                        color: assetError != null
-                            ? colors.error
-                            : Colors.greenAccent,
-                      ),
-                    const SizedBox(width: 7),
-                    Flexible(
-                      child: Text(
-                        assetLoading
-                            ? 'Downloading $selectedAssetName'
-                            : assetError != null
-                                ? 'Asset download failed'
-                                : localAssetPath != null
-                                    ? '$selectedAssetName · ${assetCacheHit == true ? 'cached' : 'ready'}'
-                                    : selectedAssetName!,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          Positioned(
-            bottom: 14,
-            left: 14,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-              decoration: BoxDecoration(
-                color: colors.surface.withValues(alpha: 0.88),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Theme.of(context).dividerColor),
-              ),
-              child: Text(
-                rigMode == RigMode.none
-                    ? 'NAVIGATE'
-                    : rigMode.name.toUpperCase(),
-                style:
-                    const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ViewCube extends StatelessWidget {
-  const _ViewCube();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 64,
-      height: 64,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: const Stack(
-        alignment: Alignment.center,
-        children: [
-          Icon(Icons.view_in_ar_rounded, size: 29),
-          Positioned(top: 4, child: Text('TOP', style: TextStyle(fontSize: 8))),
-          Positioned(
-            bottom: 4,
-            child: Text('FRONT', style: TextStyle(fontSize: 8)),
-          ),
-        ],
+          child: const SizedBox.expand(),
+        ),
       ),
     );
   }
