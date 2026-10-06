@@ -12,12 +12,9 @@ class FreshBuilderViewportTexture {
 
   bool get supported {
     if (kIsWeb) return false;
-    return switch (defaultTargetPlatform) {
-      TargetPlatform.windows ||
-      TargetPlatform.linux ||
-      TargetPlatform.macOS => true,
-      _ => false,
-    };
+    return defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
   }
 
   int? get textureId => _textureId;
