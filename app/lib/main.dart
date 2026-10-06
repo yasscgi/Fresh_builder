@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:fresh_builder_viewport_texture/fresh_builder_viewport_texture.dart';
 
 import 'src/cloud/builder_asset_disk_cache.dart';
 import 'src/cloud/builder_cloud_models.dart';
@@ -452,6 +453,7 @@ class _BuilderPageState extends State<BuilderPage> {
                     workspaceController: _workspace,
                     allowDirectOrbit: true,
                     child: BuilderViewport(
+                    nativeController: _nativeViewport,
                     rigMode: _rigMode,
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
@@ -576,6 +578,7 @@ class _BuilderPageState extends State<BuilderPage> {
             workspaceController: _workspace,
             allowDirectOrbit: false,
             child: BuilderViewport(
+            nativeController: _nativeViewport,
             rigMode: _rigMode,
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
@@ -1279,6 +1282,7 @@ class _HandStateButton extends StatelessWidget {
 class BuilderViewport extends StatelessWidget {
   const BuilderViewport({
     super.key,
+    required this.nativeController,
     required this.rigMode,
     this.productName,
     this.assetCount,
@@ -1291,6 +1295,7 @@ class BuilderViewport extends StatelessWidget {
     this.assetError,
   });
 
+  final NativeViewportController nativeController;
   final RigMode rigMode;
   final String? productName;
   final int? assetCount;
@@ -1305,27 +1310,69 @@ class BuilderViewport extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFF090B19)
-              : const Color(0xFFF7F7FB),
-          border: Border.all(color: Theme.of(context).dividerColor),
+    return ListenableBuilder(
+      listenable: nativeController,
+      builder: (context, _) {
+        final textureId = nativeController.textureId;
+
+        return ClipRRect(
           borderRadius: BorderRadius.circular(18),
-        ),
-        child: CustomPaint(
-          painter: _ViewportPainter(
-            grid: Theme.of(context).dividerColor,
-            accent: colors.primary,
-            foreground: colors.onSurface,
-            showRig: rigMode != RigMode.none,
-            ik: rigMode == RigMode.ik,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? const Color(0xFF090B19)
+                  : const Color(0xFFF7F7FB),
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (textureId != null)
+                  FreshBuilderTextureView(textureId: textureId)
+                else
+                  CustomPaint(
+                    painter: _ViewportPainter(
+                      grid: Theme.of(context).dividerColor,
+                      accent: colors.primary,
+                      foreground: colors.onSurface,
+                      showRig: rigMode != RigMode.none,
+                      ik: rigMode == RigMode.ik,
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                if (nativeController.textureError != null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.errorContainer.withValues(alpha: 0.92),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Native texture unavailable · using Flutter fallback',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: colors.onErrorContainer,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          child: const SizedBox.expand(),
-        ),
-      ),
+        );
+      },
     );
   }
 }
