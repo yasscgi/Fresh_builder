@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'builder_asset_url_resolver.dart';
 import 'builder_cloud_models.dart';
@@ -33,6 +34,18 @@ class _CloudAssetDockState extends State<CloudAssetDock> {
 
   @override
   Widget build(BuildContext context) {
+    final client = FreshSupabaseBootstrap.client;
+    final stream = client?.auth.onAuthStateChange;
+
+    if (stream == null) return _buildDock(context);
+
+    return StreamBuilder<AuthState>(
+      stream: stream,
+      builder: (context, _) => _buildDock(context),
+    );
+  }
+
+  Widget _buildDock(BuildContext context) {
     if (widget.assets.isEmpty) {
       return Container(
         alignment: Alignment.center,
