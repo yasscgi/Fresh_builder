@@ -10,6 +10,7 @@ import 'src/cloud/cloud_account_button.dart';
 import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
+import 'src/workspace/builder_workspace.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,6 +94,7 @@ class _BuilderPageState extends State<BuilderPage> {
   bool _assetLoading = false;
   String? _cloudError;
   String? _assetError;
+  late final BuilderWorkspaceController _workspace;
 
   static const fallbackCategories = <(IconData, String)>[
     (Icons.accessibility_new_rounded, 'Pose'),
@@ -105,6 +107,7 @@ class _BuilderPageState extends State<BuilderPage> {
   @override
   void initState() {
     super.initState();
+    _workspace = BuilderWorkspaceController();
     if (widget.cloudReady) {
       _assetCache = BuilderAssetDiskCache();
     }
@@ -113,6 +116,7 @@ class _BuilderPageState extends State<BuilderPage> {
   @override
   void dispose() {
     _assetCache?.dispose();
+    _workspace.dispose();
     super.dispose();
   }
 
@@ -190,6 +194,7 @@ class _BuilderPageState extends State<BuilderPage> {
       _assetError = null;
       _assetLoading = choice.asset.type != 'pose';
     });
+    _workspace.setBusy(choice.asset.type != 'pose', status: 'Preparing ${choice.name}');
 
     if (choice.asset.type == 'pose') {
       return;
@@ -212,12 +217,14 @@ class _BuilderPageState extends State<BuilderPage> {
         _cachedAsset = local;
         _assetLoading = false;
       });
+      _workspace.setBusy(false, status: local.cacheHit ? 'Loaded from cache' : 'Asset ready');
     } catch (error) {
       if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
       setState(() {
         _assetLoading = false;
         _assetError = error.toString();
       });
+      _workspace.setBusy(false, status: 'Asset failed');
     }
   }
 
@@ -310,7 +317,10 @@ class _BuilderPageState extends State<BuilderPage> {
             child: Column(
               children: [
                 Expanded(
-                  child: BuilderViewport(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: BuilderViewport(
                     rigMode: _rigMode,
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
@@ -321,6 +331,24 @@ class _BuilderPageState extends State<BuilderPage> {
                     assetCacheHit: _cachedAsset?.cacheHit,
                     assetLoading: _assetLoading,
                     assetError: _assetError,
+                        ),
+                      ),
+                      Positioned(
+                        left: 10,
+                        top: 10,
+                        child: BuilderToolRail(controller: _workspace),
+                      ),
+                      Positioned(
+                        left: 10,
+                        bottom: 10,
+                        child: BuilderViewportStatus(
+                          controller: _workspace,
+                          assetName: _selectedAsset?.name,
+                          assetLoading: _assetLoading,
+                          cacheHit: _cachedAsset?.cacheHit,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 if (_cloudData != null) ...[
@@ -339,7 +367,11 @@ class _BuilderPageState extends State<BuilderPage> {
           width: desktop ? 220 : 176,
           child: _RigPanel(
             mode: _rigMode,
-            onModeChanged: (mode) => setState(() => _rigMode = mode),
+            onModeChanged: (mode) {
+              setState(() => _rigMode = mode);
+              _workspace.setRigVisible(mode != RigMode.none);
+            },
+            onToggleHand: _workspace.toggleHand,
           ),
         ),
       ],
@@ -361,6 +393,22 @@ class _BuilderPageState extends State<BuilderPage> {
             assetCacheHit: _cachedAsset?.cacheHit,
             assetLoading: _assetLoading,
             assetError: _assetError,
+          ),
+        ),
+        Positioned(
+          right: 8,
+          top: 12,
+          child: BuilderToolRail(controller: _workspace, compact: true),
+        ),
+        Positioned(
+          left: 72,
+          top: 12,
+          right: 190,
+          child: BuilderViewportStatus(
+            controller: _workspace,
+            assetName: _selectedAsset?.name,
+            assetLoading: _assetLoading,
+            cacheHit: _cachedAsset?.cacheHit,
           ),
         ),
         Positioned(
@@ -391,7 +439,11 @@ class _BuilderPageState extends State<BuilderPage> {
           bottom: 10,
           child: _MobileRigBar(
             mode: _rigMode,
-            onModeChanged: (mode) => setState(() => _rigMode = mode),
+            onModeChanged: (mode) {
+              setState(() => _rigMode = mode);
+              _workspace.setRigVisible(mode != RigMode.none);
+            },
+            onToggleHand: _workspace.toggleHand,
           ),
         ),
       ],
@@ -571,10 +623,15 @@ class _CategoryRail extends StatelessWidget {
 }
 
 class _RigPanel extends StatelessWidget {
-  const _RigPanel({required this.mode, required this.onModeChanged});
+  const _RigPanel({
+    required this.mode,
+    required this.onModeChanged,
+    required this.onToggleHand,
+  });
 
   final RigMode mode;
   final ValueChanged<RigMode> onModeChanged;
+  final VoidCallback onToggleHand;
 
   @override
   Widget build(BuildContext context) {
@@ -610,9 +667,10 @@ class _RigPanel extends StatelessWidget {
                 onModeChanged(mode == RigMode.fk ? RigMode.none : RigMode.fk),
           ),
           const SizedBox(height: 7),
-          const _RigButton(
+          _RigButton(
             label: 'Hands',
             icon: Icons.pan_tool_alt_rounded,
+            onTap: onToggleHand,
           ),
           const Spacer(),
           Text(
@@ -628,10 +686,15 @@ class _RigPanel extends StatelessWidget {
 }
 
 class _MobileRigBar extends StatelessWidget {
-  const _MobileRigBar({required this.mode, required this.onModeChanged});
+  const _MobileRigBar({
+    required this.mode,
+    required this.onModeChanged,
+    required this.onToggleHand,
+  });
 
   final RigMode mode;
   final ValueChanged<RigMode> onModeChanged;
+  final VoidCallback onToggleHand;
 
   @override
   Widget build(BuildContext context) {

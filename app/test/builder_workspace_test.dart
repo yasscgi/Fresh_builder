@@ -1,0 +1,39 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fresh_builder/src/workspace/builder_workspace.dart';
+
+void main() {
+  test('transform tool selection is deterministic', () {
+    final controller = BuilderWorkspaceController();
+    expect(controller.tool, BuilderTool.select);
+
+    controller.selectTool(BuilderTool.rotate);
+    expect(controller.tool, BuilderTool.rotate);
+
+    controller.dispose();
+  });
+
+  test('pose gesture locks navigation until commit', () {
+    final controller = BuilderWorkspaceController();
+
+    controller.beginPoseGesture();
+    expect(controller.navigationLocked, isTrue);
+
+    controller.commitPoseGesture();
+    expect(controller.navigationLocked, isFalse);
+    expect(controller.status, 'Pose committed');
+
+    controller.dispose();
+  });
+
+  test('hand state toggles without changing transform tool', () {
+    final controller = BuilderWorkspaceController();
+    controller.selectTool(BuilderTool.move);
+    final before = controller.handOpen;
+
+    controller.toggleHand();
+
+    expect(controller.handOpen, isNot(before));
+    expect(controller.tool, BuilderTool.move);
+    controller.dispose();
+  });
+}
