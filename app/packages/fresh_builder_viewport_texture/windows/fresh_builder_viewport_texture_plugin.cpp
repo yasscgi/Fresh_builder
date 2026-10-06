@@ -86,13 +86,13 @@ bool FreshBuilderViewportTexturePlugin::CreateTexture() {
     return false;
   }
 
-  capture_enabled_(true);
+  capture_enabled_(1);
   return true;
 }
 
 void FreshBuilderViewportTexturePlugin::DisposeTexture() {
   if (capture_enabled_ != nullptr) {
-    capture_enabled_(false);
+    capture_enabled_(0);
   }
 
   if (texture_id_ >= 0 && registrar_ != nullptr) {
