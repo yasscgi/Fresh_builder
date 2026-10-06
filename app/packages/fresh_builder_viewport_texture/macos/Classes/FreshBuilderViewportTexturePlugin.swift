@@ -209,37 +209,50 @@ public final class FreshBuilderViewportTexturePlugin: NSObject, FlutterPlugin {
         candidates.append(Self.libraryName)
 
         for candidate in candidates {
+            if let handle = dlopen(candidate, RTLD_NOW | RTLD_NOLOAD | RTLD_LOCAL),
+               installSymbols(from: handle) {
+                rustModule = handle
+                return true
+            }
+        }
+
+        for candidate in candidates {
             guard let handle = dlopen(candidate, RTLD_NOW | RTLD_LOCAL) else {
                 continue
             }
-
-            guard
-                let captureSymbol = dlsym(
-                    handle,
-                    "fresh_builder_frame_capture_enabled"
-                ),
-                let copySymbol = dlsym(
-                    handle,
-                    "fresh_builder_copy_latest_frame"
-                )
-            else {
-                dlclose(handle)
-                continue
+            if installSymbols(from: handle) {
+                rustModule = handle
+                return true
             }
-
-            rustModule = handle
-            captureEnabled = unsafeBitCast(
-                captureSymbol,
-                to: CaptureEnabledFn.self
-            )
-            copyLatestFrame = unsafeBitCast(
-                copySymbol,
-                to: CopyLatestFrameFn.self
-            )
-            return true
+            dlclose(handle)
         }
 
         return false
+    }
+
+    private func installSymbols(from handle: UnsafeMutableRawPointer) -> Bool {
+        guard
+            let captureSymbol = dlsym(
+                handle,
+                "fresh_builder_frame_capture_enabled"
+            ),
+            let copySymbol = dlsym(
+                handle,
+                "fresh_builder_copy_latest_frame"
+            )
+        else {
+            return false
+        }
+
+        captureEnabled = unsafeBitCast(
+            captureSymbol,
+            to: CaptureEnabledFn.self
+        )
+        copyLatestFrame = unsafeBitCast(
+            copySymbol,
+            to: CopyLatestFrameFn.self
+        )
+        return true
     }
 
     private func createTexture() -> Bool {
