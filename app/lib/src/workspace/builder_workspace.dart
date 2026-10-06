@@ -9,6 +9,7 @@ class BuilderWorkspaceController extends ChangeNotifier {
   bool _handOpen = true;
   bool _busy = false;
   String? _status;
+  String _viewPreset = 'front';
 
   BuilderTool get tool => _tool;
   bool get navigationLocked => _navigationLocked;
@@ -16,6 +17,20 @@ class BuilderWorkspaceController extends ChangeNotifier {
   bool get handOpen => _handOpen;
   bool get busy => _busy;
   String? get status => _status;
+  String get viewPreset => _viewPreset;
+
+  void setViewPreset(String value) {
+    if (_viewPreset == value) return;
+    _viewPreset = value;
+    _status = '${value.toUpperCase()} view';
+    notifyListeners();
+  }
+
+  void markOrbit() {
+    if (_navigationLocked) return;
+    _status = 'Orbit view';
+    notifyListeners();
+  }
 
   void selectTool(BuilderTool value) {
     if (_tool == value) return;
