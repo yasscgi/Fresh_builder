@@ -540,89 +540,252 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 1120;
+        final height = desktop ? 66.0 : 58.0;
+
+        return Container(
+          height: height,
+          padding: EdgeInsets.symmetric(horizontal: desktop ? 16 : 10),
+          decoration: BoxDecoration(
+            color: colors.surface.withValues(alpha: 0.96),
+            border: Border(
+              bottom: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.055),
+                blurRadius: 30,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: desktop ? 230 : 132,
+                child: Row(
+                  children: [
+                    Container(
+                      width: desktop ? 40 : 34,
+                      height: desktop ? 40 : 34,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: colors.primary.withValues(alpha: 0.10),
+                        border: Border.all(
+                          color: colors.primary.withValues(alpha: 0.46),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: colors.primary.withValues(alpha: 0.18),
+                            blurRadius: 18,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.view_in_ar_rounded,
+                        size: desktop ? 22 : 19,
+                        color: colors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            maxLines: 1,
+                            text: TextSpan(
+                              style: TextStyle(
+                                fontSize: desktop ? 20 : 16,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.6,
+                                color: colors.onSurface,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Fresh'),
+                                TextSpan(
+                                  text: 'STL',
+                                  style: TextStyle(color: colors.primary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (desktop)
+                            Text(
+                              'POSE · CUSTOMIZE · PRINT',
+                              style: TextStyle(
+                                fontSize: 6.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2.1,
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (desktop)
+                Expanded(
+                  child: Center(
+                    child: Container(
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: colors.surface.withValues(alpha: 0.86),
+                        borderRadius: BorderRadius.circular(15),
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _HeaderModeChip(
+                            label: 'Builder',
+                            icon: Icons.view_in_ar_rounded,
+                            active: true,
+                          ),
+                          const _HeaderModeChip(
+                            label: 'Product',
+                            icon: Icons.inventory_2_outlined,
+                          ),
+                          const _HeaderModeChip(
+                            label: 'Render',
+                            icon: Icons.image_outlined,
+                          ),
+                          const _HeaderModeChip(
+                            label: 'Export',
+                            icon: Icons.download_rounded,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                const Spacer(),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _HeaderIconButton(
+                    icon: Icons.undo_rounded,
+                    tooltip: 'Undo',
+                    onPressed: () {},
+                  ),
+                  _HeaderIconButton(
+                    icon: Icons.redo_rounded,
+                    tooltip: 'Redo',
+                    onPressed: () {},
+                  ),
+                  _HeaderIconButton(
+                    icon: Icons.brightness_6_rounded,
+                    tooltip: 'Theme',
+                    onPressed: onToggleTheme,
+                  ),
+                  if (desktop || constraints.maxWidth >= 430)
+                    CloudProductPickerButton(
+                      cloudReady: cloudReady,
+                      selectedProduct: selectedProduct,
+                      onSelected: onProductSelected,
+                    ),
+                  CloudAccountButton(cloudReady: cloudReady),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _HeaderModeChip extends StatelessWidget {
+  const _HeaderModeChip({
+    required this.label,
+    required this.icon,
+    this.active = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Container(
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      height: 44,
+      constraints: const BoxConstraints(minWidth: 108),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor),
-        ),
+        gradient: active
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  colors.primary.withValues(alpha: 0.92),
+                  colors.primary,
+                ],
+              )
+            : null,
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: colors.primary,
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: const Icon(Icons.auto_awesome_rounded, size: 18),
+          Icon(
+            icon,
+            size: 14,
+            color: active ? Colors.white : colors.onSurfaceVariant,
           ),
-          const SizedBox(width: 10),
-          const Text(
-            'Fresh Builder',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.undo_rounded, size: 19),
-            tooltip: 'Undo',
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.redo_rounded, size: 19),
-            tooltip: 'Redo',
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.brightness_6_rounded, size: 19),
-            tooltip: 'Theme',
-            onPressed: onToggleTheme,
-          ),
-          CloudProductPickerButton(
-            cloudReady: cloudReady,
-            selectedProduct: selectedProduct,
-            onSelected: onProductSelected,
-          ),
-          CloudAccountButton(cloudReady: cloudReady),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: const Text(
-              'CORE BOOTSTRAP',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: Colors.greenAccent,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: (cloudReady ? Colors.cyan : Colors.orange)
-                  .withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: Text(
-              cloudReady ? 'CLOUD READY' : 'LOCAL MODE',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: cloudReady
-                    ? Colors.cyanAccent
-                    : Colors.orangeAccent,
-              ),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: active ? Colors.white : colors.onSurfaceVariant,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 5),
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.88),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Icon(icon, size: 17),
+          ),
+        ),
       ),
     );
   }
