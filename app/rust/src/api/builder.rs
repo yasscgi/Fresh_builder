@@ -1,5 +1,5 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
-use builder_io::{detect_asset_format, inspect_scene_file, AssetFormat, ImportReadiness};
+use builder_io::{decode_gltf_scene, detect_asset_format, inspect_scene_file, AssetFormat, ImportReadiness};
 use std::sync::Mutex;
 
 use builder_render::{ViewPreset, ViewportCamera, ViewportRenderer};
@@ -106,6 +106,15 @@ pub struct LocalSceneInfo {
     pub readiness: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct DecodedSceneInfo {
+    pub mesh_count: u32,
+    pub vertex_count: u64,
+    pub index_count: u64,
+    pub joint_count: u32,
+    pub skinned_mesh_count: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum BridgeViewPreset {
     Front,
@@ -172,6 +181,28 @@ pub fn inspect_local_scene(
         meters_per_unit: scene.meters_per_unit,
         skinned: scene.skinned,
         readiness: readiness.to_owned(),
+    })
+}
+
+pub fn decode_local_scene(
+    path: String,
+    meters_per_unit: f32,
+) -> Result<DecodedSceneInfo, String> {
+    let format = detect_asset_format(&path);
+    let scene = match format {
+        AssetFormat::Glb | AssetFormat::Gltf => decode_gltf_scene(&path, meters_per_unit)?,
+        AssetFormat::Fbx => {
+            return Err("FBX decoder is intentionally separate; no FBX-to-GLB conversion is performed".to_owned())
+        }
+        other => return Err(format!("Native scene decoding is not implemented for {other:?} yet")),
+    };
+
+    Ok(DecodedSceneInfo {
+        mesh_count: scene.meshes.len() as u32,
+        vertex_count: scene.vertex_count() as u64,
+        index_count: scene.index_count() as u64,
+        joint_count: scene.joint_count,
+        skinned_mesh_count: scene.meshes.iter().filter(|mesh| mesh.skinned).count() as u32,
     })
 }
 

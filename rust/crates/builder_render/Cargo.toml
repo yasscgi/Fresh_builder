@@ -6,3 +6,4 @@ license = "Proprietary"
 
 [dependencies]
 wgpu = "=30.0.1"
+bytemuck = { version = "1.23", features = ["derive"] }

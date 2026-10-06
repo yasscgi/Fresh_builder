@@ -6,3 +6,5 @@ license = "Proprietary"
 
 [dependencies]
 sha2 = "0.10"
+gltf = { version = "1.4", features = ["import"] }
+builder_render = { path = "../builder_render" }
