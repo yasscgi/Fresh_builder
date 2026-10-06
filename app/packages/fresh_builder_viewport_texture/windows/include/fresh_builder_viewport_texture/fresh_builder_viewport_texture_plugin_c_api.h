@@ -3,7 +3,7 @@
 
 #include <flutter_plugin_registrar.h>
 
-#ifdef FRESH_BUILDER_VIEWPORT_TEXTURE_PLUGIN_IMPL
+#ifdef FLUTTER_PLUGIN_IMPL
 #define FRESH_BUILDER_VIEWPORT_TEXTURE_PLUGIN_EXPORT __declspec(dllexport)
 #else
 #define FRESH_BUILDER_VIEWPORT_TEXTURE_PLUGIN_EXPORT __declspec(dllimport)
