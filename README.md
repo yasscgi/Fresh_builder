@@ -32,7 +32,14 @@ Implemented:
 - WGPU 30 adapter probing
 - CI definitions for Rust, FRB codegen and Flutter analysis
 - Supabase Flutter runtime using the existing FreshSTL Builder schema
-- typed loading of builder_configs, builder_categories and builder_assets
+- FreshSTL account sign in / sign up / sign out
+- accessible Builder product picker backed by production RLS
+- typed loading of Builder config, categories, assets, articulated chains, joints and surface zones
+- protected `private-downloads` access through the authenticated `builder-asset-url` Edge Function
+- short-lived signed URL cache plus versioned native disk cache
+- selectable asset variations
+- RLS-backed saved Builder designs
+- Rust `builder_io` format detection and local cache primitives
 - publishable-key-only client configuration; no privileged key is shipped in the app
 
 Next rendering milestone:
@@ -88,3 +95,5 @@ flutter run \
 ```
 
 Access to Builder configuration and assets remains controlled by the existing database RLS policies and `user_has_product_access(product_id)`. Never place a secret/service-role key in the Flutter application.
+
+Protected assets are resolved by the authenticated `builder-asset-url` Edge Function, then downloaded to a versioned local cache. See `docs/SUPABASE_NATIVE.md` for the full cloud/security flow.
