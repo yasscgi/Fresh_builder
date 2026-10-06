@@ -117,3 +117,22 @@ The readback is intentionally isolated behind capture_enabled so mobile/fallback
 This is an MVP presentation bridge. The next Windows optimization is Flutter's GPU surface texture path using a DXGI shared handle or D3D11 texture so the GPU->CPU readback can be removed entirely.
 
 macOS/Linux/Android/iOS remain on the Flutter fallback until their native texture implementations are added.
+
+
+## Linux and macOS Flutter Texture presentation
+
+The same `fresh_builder/viewport_texture` method-channel contract now has native desktop implementations on Linux and macOS.
+
+Linux:
+- `FlPixelBufferTexture` registered through `FlTextureRegistrar`;
+- the plugin resolves the already-loaded `libfresh_builder_rust.so` first with `RTLD_NOLOAD`;
+- frame bytes are copied directly from the Rust C ABI into the native texture buffer;
+- no image/frame payload crosses Dart.
+
+macOS:
+- `FlutterTexture` backed by a reusable `CVPixelBuffer`;
+- the plugin resolves the already-loaded `libfresh_builder_rust.dylib` from the app Frameworks directory first;
+- the WGPU RGBA frame is converted natively to the BGRA pixel format accepted by Flutter's Darwin texture API;
+- Dart still receives only the texture ID and frame-available control messages.
+
+The current desktop presentation path is correctness-first and uses GPU-to-CPU readback once per coalesced interaction. Windows can later move to DXGI/D3D11 shared GPU surfaces; macOS can move to IOSurface/Metal zero-copy; Linux can move to an embedder-supported GPU texture path when available.
