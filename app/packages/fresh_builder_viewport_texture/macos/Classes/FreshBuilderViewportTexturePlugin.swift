@@ -195,15 +195,18 @@ public final class FreshBuilderViewportTexturePlugin: NSObject, FlutterPlugin {
             return true
         }
 
-        let candidates: [String?] = [
-            nil,
-            Bundle.main.privateFrameworksPath.map {
-                ($0 as NSString).appendingPathComponent(Self.libraryName)
-            },
+        var candidates = [String]()
+        if let frameworks = Bundle.main.privateFrameworksPath {
+            candidates.append(
+                (frameworks as NSString)
+                    .appendingPathComponent(Self.libraryName)
+            )
+        }
+        candidates.append(
             (Bundle.main.bundlePath as NSString)
-                .appendingPathComponent("Contents/Frameworks/\(Self.libraryName)"),
-            Self.libraryName,
-        ]
+                .appendingPathComponent("Contents/Frameworks/\(Self.libraryName)")
+        )
+        candidates.append(Self.libraryName)
 
         for candidate in candidates {
             guard let handle = dlopen(candidate, RTLD_NOW | RTLD_LOCAL) else {
