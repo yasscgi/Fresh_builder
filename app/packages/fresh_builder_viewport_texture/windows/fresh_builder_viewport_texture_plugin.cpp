@@ -96,8 +96,7 @@ void FreshBuilderViewportTexturePlugin::DisposeTexture() {
   }
 
   if (texture_id_ >= 0 && registrar_ != nullptr) {
-    registrar_->texture_registrar()->UnregisterTexture(
-        texture_id_, nullptr);
+    registrar_->texture_registrar()->UnregisterTexture(texture_id_);
   }
 
   texture_id_ = -1;
