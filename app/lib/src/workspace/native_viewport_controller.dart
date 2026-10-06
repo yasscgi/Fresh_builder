@@ -9,6 +9,7 @@ class NativeViewportController extends ChangeNotifier {
   BridgeCameraState? _camera;
   NativeSceneStatus? _sceneStatus;
   String? _error;
+  String? _pendingSceneKey;
   String? _pendingScenePath;
   double _pendingMetersPerUnit = 1;
   bool _initializing = false;
@@ -170,10 +171,12 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
-  Future<void> loadLocalScene({
+  Future<void> upsertLocalScene({
+    required String sceneKey,
     required String path,
     required double metersPerUnit,
   }) async {
+    _pendingSceneKey = sceneKey;
     _pendingScenePath = path;
     _pendingMetersPerUnit =
         metersPerUnit.isFinite && metersPerUnit > 0 ? metersPerUnit : 1;
@@ -187,11 +190,19 @@ class NativeViewportController extends ChangeNotifier {
 
   Future<void> _loadPendingScene() async {
     final session = _session;
+    final sceneKey = _pendingSceneKey;
     final path = _pendingScenePath;
-    if (session == null || path == null || path.isEmpty) return;
+    if (session == null ||
+        sceneKey == null ||
+        sceneKey.isEmpty ||
+        path == null ||
+        path.isEmpty) {
+      return;
+    }
 
     try {
-      _sceneStatus = await session.loadLocalScene(
+      _sceneStatus = await session.upsertLocalScene(
+        sceneKey: sceneKey,
         path: path,
         metersPerUnit: _pendingMetersPerUnit,
       );
@@ -203,13 +214,30 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
-  Future<void> clearScene() async {
+  Future<void> removeScene(String sceneKey) async {
+    if (_pendingSceneKey == sceneKey) {
+      _pendingSceneKey = null;
+      _pendingScenePath = null;
+    }
+    final session = _session;
+    if (session != null) {
+      try {
+        await session.removeScene(sceneKey: sceneKey);
+      } catch (error) {
+        _error = error.toString();
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> clearScenes() async {
+    _pendingSceneKey = null;
     _pendingScenePath = null;
     _sceneStatus = null;
     final session = _session;
     if (session != null) {
       try {
-        await session.clearScene();
+        await session.clearScenes();
       } catch (error) {
         _error = error.toString();
       }
