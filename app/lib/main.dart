@@ -227,7 +227,26 @@ class _BuilderPageState extends State<BuilderPage> {
         _cachedAsset = local;
         _assetLoading = false;
       });
-      _workspace.setBusy(false, status: local.cacheHit ? 'Loaded from cache' : 'Asset ready');
+
+      _workspace.setBusy(true, status: 'Loading native scene');
+      await _nativeViewport.upsertLocalScene(
+        sceneKey: selectionKey,
+        path: local.file.path,
+        metersPerUnit: _metersPerUnit(choice),
+      );
+
+      if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
+      final nativeScene = _nativeViewport.sceneStatus;
+      _workspace.setBusy(
+        false,
+        status: nativeScene?.loadedToGpu == true
+            ? 'GPU scene ready'
+            : nativeScene?.readiness == 'needs_fbx_decoder'
+                ? 'FBX cached · decoder pending'
+                : local.cacheHit
+                    ? 'Loaded from cache'
+                    : 'Asset ready',
+      );
     } catch (error) {
       if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
       setState(() {
@@ -236,6 +255,26 @@ class _BuilderPageState extends State<BuilderPage> {
       });
       _workspace.setBusy(false, status: 'Asset failed');
     }
+  }
+
+  double _metersPerUnit(BuilderAssetChoice choice) {
+    final metadata = choice.metadata;
+    final raw = metadata['metersPerBlenderUnit'] ??
+        metadata['meters_per_blender_unit'] ??
+        metadata['metersPerUnit'];
+    if (raw is num && raw.toDouble().isFinite && raw.toDouble() > 0) {
+      return raw.toDouble();
+    }
+
+    final sourceUnit = (metadata['sourceUnit'] ?? metadata['unit'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    return switch (sourceUnit) {
+      'mm' || 'millimeter' || 'millimeters' => 0.001,
+      'cm' || 'centimeter' || 'centimeters' => 0.01,
+      _ => 1.0,
+    };
   }
 
   IconData _iconForCategory(BuilderCloudCategory category) {
@@ -530,6 +569,7 @@ class _BuilderPageState extends State<BuilderPage> {
           right: 92,
           child: BuilderViewportStatus(
             controller: _workspace,
+            nativeController: _nativeViewport,
             assetName: _selectedAsset?.name,
             assetLoading: _assetLoading,
             cacheHit: _cachedAsset?.cacheHit,
