@@ -322,6 +322,7 @@ class CurrentBuilderViewControls extends StatefulWidget {
 class _CurrentBuilderViewControlsState extends State<CurrentBuilderViewControls> {
   Offset? _last;
   double _dragDistance = 0;
+  bool _suppressSnap = false;
 
   @override
   Widget build(BuildContext context) {
@@ -341,6 +342,7 @@ class _CurrentBuilderViewControlsState extends State<CurrentBuilderViewControls>
                 onPanStart: (details) {
                   _last = details.localPosition;
                   _dragDistance = 0;
+                  _suppressSnap = false;
                 },
                 onPanUpdate: (details) {
                   final previous = _last;
@@ -350,7 +352,14 @@ class _CurrentBuilderViewControlsState extends State<CurrentBuilderViewControls>
                   _dragDistance += delta.distance;
                   widget.onOrbit?.call(delta.dx, delta.dy);
                 },
-                onPanEnd: (_) => _last = null,
+                onPanEnd: (_) {
+                  _suppressSnap = _dragDistance > 5;
+                  _last = null;
+                },
+                onPanCancel: () {
+                  _suppressSnap = _dragDistance > 5;
+                  _last = null;
+                },
                 child: Container(
                   width: 52,
                   height: 52,
@@ -407,7 +416,12 @@ class _CurrentBuilderViewControlsState extends State<CurrentBuilderViewControls>
       alignment: alignment,
       child: InkWell(
         onTap: () {
-          if (_dragDistance <= 5) widget.onView(preset);
+          if (_suppressSnap) {
+            _suppressSnap = false;
+            _dragDistance = 0;
+            return;
+          }
+          widget.onView(preset);
           _dragDistance = 0;
         },
         child: Padding(
