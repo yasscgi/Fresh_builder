@@ -90,7 +90,7 @@ impl GpuContext {
             mesh_count: scene.meshes.len(),
             vertex_count: scene.vertex_count(),
             index_count: scene.index_count(),
-            joint_count: scene.joint_count,
+            joint_count: scene.joint_count(),
         })
     }
 }

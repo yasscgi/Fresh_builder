@@ -66,7 +66,7 @@ impl GpuContext {
 
         Ok(GpuScene {
             meshes,
-            joint_count: scene.joint_count,
+            joint_count: scene.joint_count(),
         })
     }
 }
