@@ -45,7 +45,8 @@ pub fn publish(width: u32, height: u32, rgba: Vec<u8>) {
 }
 
 #[no_mangle]
-pub extern "C" fn fresh_builder_frame_capture_enabled(enabled: bool) {
+pub extern "C" fn fresh_builder_frame_capture_enabled(enabled: u8) {
+    let enabled = enabled != 0;
     CAPTURE_ENABLED.store(enabled, Ordering::Release);
     if !enabled {
         if let Ok(mut target) = frame().lock() {
@@ -95,7 +96,7 @@ mod tests {
 
     #[test]
     fn publishes_and_copies_frame_when_capture_is_enabled() {
-        fresh_builder_frame_capture_enabled(true);
+        fresh_builder_frame_capture_enabled(1);
         publish(2, 1, vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
         let mut width = 0;
@@ -128,6 +129,6 @@ mod tests {
         assert_eq!(copied, 8);
         assert_eq!(bytes, vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
-        fresh_builder_frame_capture_enabled(false);
+        fresh_builder_frame_capture_enabled(0);
     }
 }
