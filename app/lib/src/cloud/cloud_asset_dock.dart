@@ -9,13 +9,13 @@ class CloudAssetDock extends StatefulWidget {
   const CloudAssetDock({
     super.key,
     required this.assets,
-    required this.selectedAssetId,
+    required this.selectedSelectionKey,
     required this.onSelected,
   });
 
   final List<BuilderCloudAsset> assets;
-  final String? selectedAssetId;
-  final ValueChanged<BuilderCloudAsset> onSelected;
+  final String? selectedSelectionKey;
+  final ValueChanged<BuilderAssetChoice> onSelected;
 
   @override
   State<CloudAssetDock> createState() => _CloudAssetDockState();
@@ -34,9 +34,7 @@ class _CloudAssetDockState extends State<CloudAssetDock> {
 
   @override
   Widget build(BuildContext context) {
-    final client = FreshSupabaseBootstrap.client;
-    final stream = client?.auth.onAuthStateChange;
-
+    final stream = FreshSupabaseBootstrap.client?.auth.onAuthStateChange;
     if (stream == null) return _buildDock(context);
 
     return StreamBuilder<AuthState>(
@@ -68,15 +66,65 @@ class _CloudAssetDockState extends State<CloudAssetDock> {
         separatorBuilder: (_, __) => const SizedBox(width: 7),
         itemBuilder: (context, index) {
           final asset = widget.assets[index];
+          final selected = widget.selectedSelectionKey == asset.id ||
+              widget.selectedSelectionKey?.startsWith('${asset.id}|') == true;
+
           return _AssetCard(
             asset: asset,
-            selected: widget.selectedAssetId == asset.id,
+            selected: selected,
             resolver: _resolver,
-            onTap: () => widget.onSelected(asset),
+            onTap: () => _selectAsset(context, asset),
           );
         },
       ),
     );
+  }
+
+  Future<void> _selectAsset(
+    BuildContext context,
+    BuilderCloudAsset asset,
+  ) async {
+    if (asset.variations.length <= 1) {
+      widget.onSelected(
+        BuilderAssetChoice(
+          asset: asset,
+          variation: asset.variations.isEmpty ? null : asset.variations.first,
+        ),
+      );
+      return;
+    }
+
+    final choice = await showModalBottomSheet<BuilderCloudVariation>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                child: Text(
+                  asset.name,
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                ),
+              ),
+              for (final variation in asset.variations)
+                ListTile(
+                  leading: const Icon(Icons.view_in_ar_outlined),
+                  title: Text(variation.name),
+                  onTap: () => Navigator.pop(sheetContext, variation),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (choice != null) {
+      widget.onSelected(BuilderAssetChoice(asset: asset, variation: choice));
+    }
   }
 
   BoxDecoration _decoration(BuildContext context) {
@@ -156,9 +204,19 @@ class _AssetCard extends StatelessWidget {
 
   Widget _thumbnail(BuildContext context) {
     final resolver = this.resolver;
-    if (asset.thumbnailRef == null || resolver == null) {
-      return _fallback(context);
-    }
+    if (resolver == null) return _fallback(context);
+
+    final variationId = asset.thumbnailRef == null &&
+            asset.variations.isNotEmpty &&
+            asset.variations.first.thumbnailRef != null
+        ? asset.variations.first.id
+        : null;
+
+    final hasThumbnail = asset.thumbnailRef != null ||
+        (variationId != null &&
+            asset.variations.first.thumbnailRef != null);
+
+    if (!hasThumbnail) return _fallback(context);
 
     if (FreshSupabaseBootstrap.client?.auth.currentSession == null) {
       return Stack(
@@ -171,7 +229,11 @@ class _AssetCard extends StatelessWidget {
     }
 
     return FutureBuilder<BuilderAssetUrl>(
-      future: resolver.resolve(assetId: asset.id, kind: 'thumbnail'),
+      future: resolver.resolve(
+        assetId: asset.id,
+        kind: 'thumbnail',
+        variationId: variationId,
+      ),
       builder: (context, snapshot) {
         final url = snapshot.data?.uri.toString();
         if (url == null) {
