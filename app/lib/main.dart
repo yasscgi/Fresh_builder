@@ -56,6 +56,49 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
     );
   }
 
+  Future<void> _preloadBaseCharacter(BuilderCloudData data) async {
+    final cache = _assetCache;
+    if (cache == null) return;
+
+    BuilderCloudAsset? base;
+    for (final asset in data.assets) {
+      final role = asset.role.trim().toLowerCase();
+      if (role == 'base_character' || asset.type == 'base_character') {
+        base = asset;
+        break;
+      }
+    }
+    if (base == null) return;
+
+    final choice = BuilderAssetChoice(
+      asset: base,
+      variation: base.variations.isEmpty ? null : base.variations.first,
+    );
+
+    try {
+      _workspace.setBusy(true, status: 'Loading base character');
+      final local = await cache.getOrDownload(choice);
+      await _nativeViewport.upsertLocalScene(
+        sceneKey: 'role:base_character',
+        path: local.file.path,
+        metersPerUnit: _metersPerUnit(choice),
+      );
+      if (!mounted) return;
+      final nativeScene = _nativeViewport.sceneStatus;
+      _workspace.setBusy(
+        false,
+        status: nativeScene?.loadedToGpu == true
+            ? 'Base character GPU ready'
+            : nativeScene?.readiness == 'needs_fbx_decoder'
+                ? 'Base character cached · FBX decoder pending'
+                : 'Base character ready',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Base character load failed');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -230,7 +273,7 @@ class _BuilderPageState extends State<BuilderPage> {
 
       _workspace.setBusy(true, status: 'Loading native scene');
       await _nativeViewport.upsertLocalScene(
-        sceneKey: selectionKey,
+        sceneKey: _nativeSceneKey(choice),
         path: local.file.path,
         metersPerUnit: _metersPerUnit(choice),
       );
@@ -255,6 +298,42 @@ class _BuilderPageState extends State<BuilderPage> {
       });
       _workspace.setBusy(false, status: 'Asset failed');
     }
+  }
+
+  String _nativeSceneKey(BuilderAssetChoice choice) {
+    final role = choice.asset.role.trim().toLowerCase();
+    if (role == 'base_character' || choice.asset.type == 'base_character') {
+      return 'role:base_character';
+    }
+    if (role == 'stand' || role == 'pedestal') {
+      return 'role:stand';
+    }
+
+    BuilderCloudCategory? category;
+    for (final item in _cloudData?.categories ?? const <BuilderCloudCategory>[]) {
+      if (item.id == choice.asset.categoryId ||
+          item.slug == choice.asset.categorySlug) {
+        category = item;
+        break;
+      }
+    }
+
+    final selectionMode = category?.selectionMode.toLowerCase();
+    if (selectionMode == 'multiple' ||
+        selectionMode == 'multi' ||
+        selectionMode == 'many') {
+      return 'selection:${choice.selectionKey}';
+    }
+
+    final slot = category?.slot?.trim();
+    if (slot != null && slot.isNotEmpty) return 'slot:$slot';
+    if (choice.asset.categoryId?.isNotEmpty == true) {
+      return 'category:${choice.asset.categoryId}';
+    }
+    if (choice.asset.categorySlug?.isNotEmpty == true) {
+      return 'category:${choice.asset.categorySlug}';
+    }
+    return 'asset:${choice.assetId}';
   }
 
   double _metersPerUnit(BuilderAssetChoice choice) {
@@ -295,6 +374,7 @@ class _BuilderPageState extends State<BuilderPage> {
   }
 
   Future<void> _openProduct(BuilderProductSummary product) async {
+    await _nativeViewport.clearScenes();
     setState(() {
       _selectedProduct = product;
       _cloudLoading = true;
@@ -313,6 +393,7 @@ class _BuilderPageState extends State<BuilderPage> {
         _cloudData = data;
         _cloudLoading = false;
       });
+      unawaited(_preloadBaseCharacter(data));
     } catch (error) {
       if (!mounted || _selectedProduct?.id != product.id) return;
       setState(() {
