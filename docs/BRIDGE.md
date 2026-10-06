@@ -99,3 +99,21 @@ NativeViewportSession automatically redraws after:
 - semantic view preset changes.
 
 The remaining display boundary is exporting/presenting the offscreen GPU target to Flutter Texture/platform texture without routing full frames through Dart.
+
+
+## Windows Flutter Texture presentation
+
+The first platform presentation implementation is now Windows.
+
+Data flow:
+1. Rust/WGPU renders the scene into the offscreen RGBA8 target.
+2. The Windows Flutter plugin registers a PixelBufferTexture.
+3. Creating the texture enables native frame capture through exported C ABI symbols in fresh_builder_rust.
+4. After coalesced camera/scene updates, Flutter asks Rust to publish one latest frame, then sends only markFrame over the method channel.
+5. The Windows texture callback copies the already-published native frame directly into Flutter's external texture buffer. Full frame bytes never travel through Dart.
+
+The readback is intentionally isolated behind capture_enabled so mobile/fallback builds and headless tests do not pay the GPU->CPU cost.
+
+This is an MVP presentation bridge. The next Windows optimization is Flutter's GPU surface texture path using a DXGI shared handle or D3D11 texture so the GPU->CPU readback can be removed entirely.
+
+macOS/Linux/Android/iOS remain on the Flutter fallback until their native texture implementations are added.
