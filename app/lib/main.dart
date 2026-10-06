@@ -2,15 +2,20 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-void main() {
+import 'src/cloud/supabase_bootstrap.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const FreshBuilderApp());
+  final cloudReady = await FreshSupabaseBootstrap.initialize();
+  runApp(FreshBuilderApp(cloudReady: cloudReady));
 }
 
 enum RigMode { none, ik, fk }
 
 class FreshBuilderApp extends StatefulWidget {
-  const FreshBuilderApp({super.key});
+  const FreshBuilderApp({super.key, required this.cloudReady});
+
+  final bool cloudReady;
 
   @override
   State<FreshBuilderApp> createState() => _FreshBuilderAppState();
@@ -45,6 +50,7 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
       darkTheme: _theme(Brightness.dark),
       themeMode: _themeMode,
       home: BuilderPage(
+        cloudReady: widget.cloudReady,
         onToggleTheme: () => setState(() {
           _themeMode =
               _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
@@ -55,9 +61,14 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
 }
 
 class BuilderPage extends StatefulWidget {
-  const BuilderPage({super.key, required this.onToggleTheme});
+  const BuilderPage({
+    super.key,
+    required this.onToggleTheme,
+    required this.cloudReady,
+  });
 
   final VoidCallback onToggleTheme;
+  final bool cloudReady;
 
   @override
   State<BuilderPage> createState() => _BuilderPageState();
@@ -85,7 +96,10 @@ class _BuilderPageState extends State<BuilderPage> {
             final desktop = constraints.maxWidth >= 1120;
             return Column(
               children: [
-                _TopBar(onToggleTheme: widget.onToggleTheme),
+                _TopBar(
+                  onToggleTheme: widget.onToggleTheme,
+                  cloudReady: widget.cloudReady,
+                ),
                 Expanded(
                   child: compact
                       ? _mobileLayout()
@@ -154,9 +168,13 @@ class _BuilderPageState extends State<BuilderPage> {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onToggleTheme});
+  const _TopBar({
+    required this.onToggleTheme,
+    required this.cloudReady,
+  });
 
   final VoidCallback onToggleTheme;
+  final bool cloudReady;
 
   @override
   Widget build(BuildContext context) {
@@ -215,6 +233,25 @@ class _TopBar extends StatelessWidget {
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
                 color: Colors.greenAccent,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: (cloudReady ? Colors.cyan : Colors.orange)
+                  .withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Text(
+              cloudReady ? 'CLOUD READY' : 'LOCAL MODE',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: cloudReady
+                    ? Colors.cyanAccent
+                    : Colors.orangeAccent,
               ),
             ),
           ),
