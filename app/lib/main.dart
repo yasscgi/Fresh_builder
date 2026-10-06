@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'src/cloud/builder_asset_disk_cache.dart';
 import 'src/cloud/builder_cloud_models.dart';
 import 'src/cloud/builder_cloud_repository.dart';
 import 'src/cloud/builder_product_repository.dart';
@@ -85,9 +86,13 @@ class _BuilderPageState extends State<BuilderPage> {
   int _selectedCategory = 0;
   BuilderProductSummary? _selectedProduct;
   BuilderCloudData? _cloudData;
-  String? _selectedAssetId;
+  BuilderAssetChoice? _selectedAsset;
+  CachedBuilderAsset? _cachedAsset;
+  BuilderAssetDiskCache? _assetCache;
   bool _cloudLoading = false;
+  bool _assetLoading = false;
   String? _cloudError;
+  String? _assetError;
 
   static const fallbackCategories = <(IconData, String)>[
     (Icons.accessibility_new_rounded, 'Pose'),
@@ -96,6 +101,20 @@ class _BuilderPageState extends State<BuilderPage> {
     (Icons.sports_martial_arts_rounded, 'Hand'),
     (Icons.layers_rounded, 'Base'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.cloudReady) {
+      _assetCache = BuilderAssetDiskCache();
+    }
+  }
+
+  @override
+  void dispose() {
+    _assetCache?.dispose();
+    super.dispose();
+  }
 
   List<BuilderCloudCategory?> get _cloudNavigationCategories {
     final cloud = _cloudData;
@@ -156,12 +175,50 @@ class _BuilderPageState extends State<BuilderPage> {
   void _selectCategory(int index) {
     setState(() {
       _selectedCategory = index;
-      _selectedAssetId = null;
+      _selectedAsset = null;
+      _cachedAsset = null;
+      _assetError = null;
+      _assetLoading = false;
     });
   }
 
-  void _selectAsset(BuilderCloudAsset asset) {
-    setState(() => _selectedAssetId = asset.id);
+  Future<void> _selectAsset(BuilderAssetChoice choice) async {
+    final selectionKey = choice.selectionKey;
+    setState(() {
+      _selectedAsset = choice;
+      _cachedAsset = null;
+      _assetError = null;
+      _assetLoading = choice.asset.type != 'pose';
+    });
+
+    if (choice.asset.type == 'pose') {
+      return;
+    }
+
+    final cache = _assetCache;
+    if (cache == null) {
+      if (!mounted) return;
+      setState(() {
+        _assetLoading = false;
+        _assetError = 'Cloud asset cache is unavailable.';
+      });
+      return;
+    }
+
+    try {
+      final local = await cache.getOrDownload(choice);
+      if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
+      setState(() {
+        _cachedAsset = local;
+        _assetLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
+      setState(() {
+        _assetLoading = false;
+        _assetError = error.toString();
+      });
+    }
   }
 
   IconData _iconForCategory(BuilderCloudCategory category) {
@@ -187,7 +244,10 @@ class _BuilderPageState extends State<BuilderPage> {
       _cloudLoading = true;
       _cloudError = null;
       _selectedCategory = 0;
-      _selectedAssetId = null;
+      _selectedAsset = null;
+      _cachedAsset = null;
+      _assetError = null;
+      _assetLoading = false;
     });
 
     try {
@@ -262,7 +322,7 @@ class _BuilderPageState extends State<BuilderPage> {
                   const SizedBox(height: 8),
                   CloudAssetDock(
                     assets: _visibleAssets,
-                    selectedAssetId: _selectedAssetId,
+                    selectedSelectionKey: _selectedAsset?.selectionKey,
                     onSelected: _selectAsset,
                   ),
                 ],
@@ -311,7 +371,7 @@ class _BuilderPageState extends State<BuilderPage> {
             bottom: 82,
             child: CloudAssetDock(
               assets: _visibleAssets,
-              selectedAssetId: _selectedAssetId,
+              selectedSelectionKey: _selectedAsset?.selectionKey,
               onSelected: _selectAsset,
             ),
           ),
@@ -671,6 +731,11 @@ class BuilderViewport extends StatelessWidget {
     this.assetCount,
     this.cloudLoading = false,
     this.cloudError,
+    this.selectedAssetName,
+    this.localAssetPath,
+    this.assetCacheHit,
+    this.assetLoading = false,
+    this.assetError,
   });
 
   final RigMode rigMode;
@@ -678,6 +743,11 @@ class BuilderViewport extends StatelessWidget {
   final int? assetCount;
   final bool cloudLoading;
   final String? cloudError;
+  final String? selectedAssetName;
+  final String? localAssetPath;
+  final bool? assetCacheHit;
+  final bool assetLoading;
+  final String? assetError;
 
   @override
   Widget build(BuildContext context) {
@@ -743,6 +813,61 @@ class BuilderViewport extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (selectedAssetName != null)
+            Positioned(
+              right: 14,
+              bottom: 14,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 300),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                decoration: BoxDecoration(
+                  color: colors.surface.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (assetLoading)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(
+                        assetError != null
+                            ? Icons.error_outline_rounded
+                            : localAssetPath != null
+                                ? Icons.storage_rounded
+                                : Icons.touch_app_rounded,
+                        size: 15,
+                        color: assetError != null
+                            ? colors.error
+                            : Colors.greenAccent,
+                      ),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        assetLoading
+                            ? 'Downloading $selectedAssetName'
+                            : assetError != null
+                                ? 'Asset download failed'
+                                : localAssetPath != null
+                                    ? '$selectedAssetName · ${assetCacheHit == true ? 'cached' : 'ready'}'
+                                    : selectedAssetName!,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
