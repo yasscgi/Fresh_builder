@@ -1,9 +1,22 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() {
+import 'src/config/app_config.dart';
+import 'src/data/builder_repository.dart';
+import 'src/data/builder_runtime.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (AppConfig.hasSupabase) {
+    await Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      publishableKey: AppConfig.supabasePublishableKey,
+    );
+  }
+
   runApp(const FreshBuilderApp());
 }
 
@@ -66,6 +79,26 @@ class BuilderPage extends StatefulWidget {
 class _BuilderPageState extends State<BuilderPage> {
   RigMode _rigMode = RigMode.none;
   int _selectedCategory = 0;
+  late final BuilderRuntime _runtime;
+
+  @override
+  void initState() {
+    super.initState();
+    _runtime = BuilderRuntime(BuilderRepository(Supabase.instance.client));
+    _runtime.addListener(_onRuntimeChanged);
+    _runtime.load();
+  }
+
+  void _onRuntimeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _runtime.removeListener(_onRuntimeChanged);
+    _runtime.dispose();
+    super.dispose();
+  }
 
   static const categories = <(IconData, String)>[
     (Icons.accessibility_new_rounded, 'Pose'),
@@ -85,7 +118,10 @@ class _BuilderPageState extends State<BuilderPage> {
             final desktop = constraints.maxWidth >= 1120;
             return Column(
               children: [
-                _TopBar(onToggleTheme: widget.onToggleTheme),
+                _TopBar(
+                  onToggleTheme: widget.onToggleTheme,
+                  runtime: _runtime,
+                ),
                 Expanded(
                   child: compact
                       ? _mobileLayout()
@@ -154,9 +190,13 @@ class _BuilderPageState extends State<BuilderPage> {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onToggleTheme});
+  const _TopBar({
+    required this.onToggleTheme,
+    required this.runtime,
+  });
 
   final VoidCallback onToggleTheme;
+  final BuilderRuntime runtime;
 
   @override
   Widget build(BuildContext context) {
@@ -206,15 +246,22 @@ class _TopBar extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.12),
+              color: (runtime.error == null ? Colors.green : Colors.orange)
+                  .withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(99),
             ),
-            child: const Text(
-              'CORE BOOTSTRAP',
+            child: Text(
+              runtime.loading
+                  ? 'SYNCING'
+                  : runtime.error != null
+                      ? 'DATA ERROR'
+                      : '${runtime.bundle?.assets.length ?? 0} ASSETS',
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
-                color: Colors.greenAccent,
+                color: runtime.error == null
+                    ? Colors.greenAccent
+                    : Colors.orangeAccent,
               ),
             ),
           ),
