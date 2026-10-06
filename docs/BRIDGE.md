@@ -69,3 +69,33 @@ Current native import readiness:
 - Other formats: kept explicit as unsupported until their native importer is implemented.
 
 The GPU render target is still offscreen. Platform texture/surface transport remains a separate step; frames must not be PNG-encoded and copied through Dart each frame.
+
+
+## Native Assets build integration
+
+The Flutter app now uses the flutter_rust_bridge 2.13 Native Assets backend contract directly:
+
+- app/hook/build.dart invokes FlutterRustBridgeNativeAssetsBuilder with cratePath: rust.
+- app/rust/rust-toolchain.toml pins Rust 1.93.1 and the supported desktop/mobile targets.
+- app/pubspec.yaml includes flutter_rust_bridge_hooks 2.13.0 and requires Dart >= 3.9.2.
+
+This means Flutter builds own compilation and bundling of fresh_builder_rust. Generated Dart bridge code is still produced by flutter_rust_bridge_codegen generate and is not manually maintained.
+
+## Real WGPU frame rendering
+
+ViewportRenderer now owns:
+- a color render target;
+- a Depth32Float depth target;
+- MeshPipeline;
+- camera uniform uploads;
+- indexed draws for every registered GpuScene.
+
+NativeViewportSession automatically redraws after:
+- viewport resize;
+- GLB/GLTF scene insertion/removal;
+- scene clear;
+- orbit;
+- zoom;
+- semantic view preset changes.
+
+The remaining display boundary is exporting/presenting the offscreen GPU target to Flutter Texture/platform texture without routing full frames through Dart.

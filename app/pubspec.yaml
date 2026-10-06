@@ -4,12 +4,13 @@ publish_to: "none"
 version: 0.4.0+4
 
 environment:
-  sdk: ">=3.9.0 <4.0.0"
+  sdk: ">=3.9.2 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
   flutter_rust_bridge: 2.13.0
+  flutter_rust_bridge_hooks: 2.13.0
   supabase_flutter: 2.18.0
   http: 1.5.0
   path_provider: 2.1.5
