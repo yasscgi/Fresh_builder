@@ -11,11 +11,13 @@ class CloudAssetDock extends StatefulWidget {
     required this.assets,
     required this.selectedSelectionKey,
     required this.onSelected,
+    this.compact = false,
   });
 
   final List<BuilderCloudAsset> assets;
   final String? selectedSelectionKey;
   final ValueChanged<BuilderAssetChoice> onSelected;
+  final bool compact;
 
   @override
   State<CloudAssetDock> createState() => _CloudAssetDockState();
@@ -57,8 +59,8 @@ class _CloudAssetDockState extends State<CloudAssetDock> {
     }
 
     return Container(
-      height: 112,
-      padding: const EdgeInsets.all(7),
+      height: widget.compact ? 84 : 150,
+      padding: EdgeInsets.all(widget.compact ? 6 : 8),
       decoration: _decoration(context),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -73,6 +75,7 @@ class _CloudAssetDockState extends State<CloudAssetDock> {
             asset: asset,
             selected: selected,
             resolver: _resolver,
+            compact: widget.compact,
             onTap: () => _selectAsset(context, asset),
           );
         },
@@ -142,19 +145,21 @@ class _AssetCard extends StatelessWidget {
     required this.selected,
     required this.resolver,
     required this.onTap,
+    required this.compact,
   });
 
   final BuilderCloudAsset asset;
   final bool selected;
   final BuilderAssetUrlResolver? resolver;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
     return SizedBox(
-      width: 92,
+      width: compact ? 64 : 86,
       child: Material(
         color: selected
             ? colors.primary.withValues(alpha: 0.16)
@@ -164,7 +169,7 @@ class _AssetCard extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(11),
           child: Container(
-            padding: const EdgeInsets.all(5),
+            padding: EdgeInsets.all(compact ? 3 : 5),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(11),
               border: Border.all(
@@ -181,16 +186,16 @@ class _AssetCard extends StatelessWidget {
                   asset.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10,
+                  style: TextStyle(
+                    fontSize: compact ? 7 : 8,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 if (asset.variations.isNotEmpty)
                   Text(
-                    '${asset.variations.length} variations',
+                    '${asset.variations.length}',
                     style: TextStyle(
-                      fontSize: 8,
+                      fontSize: compact ? 7 : 8,
                       color: colors.onSurfaceVariant,
                     ),
                   ),
