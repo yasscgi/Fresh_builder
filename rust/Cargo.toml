@@ -3,4 +3,5 @@ resolver = "2"
 members = [
     "crates/builder_core",
     "crates/builder_render",
+    "crates/builder_io",
 ]
