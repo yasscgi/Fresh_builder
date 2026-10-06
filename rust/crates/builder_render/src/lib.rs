@@ -7,5 +7,5 @@ mod viewport;
 pub use camera::{ViewPreset, ViewportCamera};
 pub use gpu::{probe_high_performance_adapter, GpuAdapterInfo, GpuContext, SceneUploadStats};
 pub use gpu_scene::{GpuMesh, GpuScene, GpuVertex};
-pub use scene::{RenderMesh, RenderScene, RenderVertex};
+pub use scene::{identity_matrix, RenderJoint, RenderMesh, RenderScene, RenderSkeleton, RenderVertex};
 pub use viewport::ViewportRenderer;
