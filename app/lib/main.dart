@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -10,11 +11,15 @@ import 'src/cloud/cloud_account_button.dart';
 import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
+import 'src/rust/frb_generated.dart';
 import 'src/workspace/builder_workspace.dart';
 import 'src/workspace/current_builder_ui.dart';
+import 'src/workspace/native_viewport_controller.dart';
+import 'src/workspace/native_viewport_surface.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await FreshBuilderRust.init();
   final cloudReady = await FreshSupabaseBootstrap.initialize();
   runApp(FreshBuilderApp(cloudReady: cloudReady));
 }
@@ -97,6 +102,7 @@ class _BuilderPageState extends State<BuilderPage> {
   String? _cloudError;
   String? _assetError;
   late final BuilderWorkspaceController _workspace;
+  late final NativeViewportController _nativeViewport;
 
   static const fallbackCategories = <(IconData, String)>[
     (Icons.accessibility_new_rounded, 'Pose'),
@@ -110,6 +116,7 @@ class _BuilderPageState extends State<BuilderPage> {
   void initState() {
     super.initState();
     _workspace = BuilderWorkspaceController();
+    _nativeViewport = NativeViewportController();
     if (widget.cloudReady) {
       _assetCache = BuilderAssetDiskCache();
     }
@@ -118,6 +125,7 @@ class _BuilderPageState extends State<BuilderPage> {
   @override
   void dispose() {
     _assetCache?.dispose();
+    _nativeViewport.dispose();
     _workspace.dispose();
     super.dispose();
   }
@@ -319,7 +327,11 @@ class _BuilderPageState extends State<BuilderPage> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: BuilderViewport(
+                  child: NativeViewportSurface(
+                    nativeController: _nativeViewport,
+                    workspaceController: _workspace,
+                    allowDirectOrbit: true,
+                    child: BuilderViewport(
                     rigMode: _rigMode,
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
@@ -330,6 +342,7 @@ class _BuilderPageState extends State<BuilderPage> {
                     assetCacheHit: _cachedAsset?.cacheHit,
                     assetLoading: _assetLoading,
                     assetError: _assetError,
+                  ),
                   ),
                 ),
                 Positioned(
@@ -346,9 +359,14 @@ class _BuilderPageState extends State<BuilderPage> {
                   child: ListenableBuilder(
                     listenable: _workspace,
                     builder: (context, _) => CurrentBuilderViewControls(
-                      onView: (preset) =>
-                          _workspace.setViewPreset(preset.name),
-                      onOrbit: (_, __) => _workspace.markOrbit(),
+                      onView: (preset) {
+                        _workspace.setViewPreset(preset.name);
+                        unawaited(_nativeViewport.setViewPreset(preset.name));
+                      },
+                      onOrbit: (dx, dy) {
+                        _nativeViewport.orbit(dx, dy);
+                        _workspace.markOrbit();
+                      },
                       disabled: _workspace.navigationLocked,
                     ),
                   ),
@@ -433,7 +451,11 @@ class _BuilderPageState extends State<BuilderPage> {
     return Stack(
       children: [
         Positioned.fill(
-          child: BuilderViewport(
+          child: NativeViewportSurface(
+            nativeController: _nativeViewport,
+            workspaceController: _workspace,
+            allowDirectOrbit: false,
+            child: BuilderViewport(
             rigMode: _rigMode,
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
@@ -444,6 +466,7 @@ class _BuilderPageState extends State<BuilderPage> {
             assetCacheHit: _cachedAsset?.cacheHit,
             assetLoading: _assetLoading,
             assetError: _assetError,
+          ),
           ),
         ),
         Positioned(
@@ -457,8 +480,14 @@ class _BuilderPageState extends State<BuilderPage> {
           child: ListenableBuilder(
             listenable: _workspace,
             builder: (context, _) => CurrentBuilderViewControls(
-              onView: (preset) => _workspace.setViewPreset(preset.name),
-              onOrbit: (_, __) => _workspace.markOrbit(),
+              onView: (preset) {
+                _workspace.setViewPreset(preset.name);
+                unawaited(_nativeViewport.setViewPreset(preset.name));
+              },
+              onOrbit: (dx, dy) {
+                _nativeViewport.orbit(dx, dy);
+                _workspace.markOrbit();
+              },
               disabled: _workspace.navigationLocked,
             ),
           ),
