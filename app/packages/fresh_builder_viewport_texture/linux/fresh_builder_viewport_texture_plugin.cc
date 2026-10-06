@@ -133,8 +133,14 @@ static bool resolve_rust_bridge(FreshBuilderViewportTexturePlugin* self) {
     return true;
   }
 
-  self->rust_module = dlopen(kRustLibraryName, RTLD_NOW | RTLD_LOCAL);
-  self->owns_rust_module = self->rust_module != nullptr;
+  self->rust_module =
+      dlopen(kRustLibraryName, RTLD_NOW | RTLD_NOLOAD | RTLD_LOCAL);
+  self->owns_rust_module = false;
+
+  if (self->rust_module == nullptr) {
+    self->rust_module = dlopen(kRustLibraryName, RTLD_NOW | RTLD_LOCAL);
+    self->owns_rust_module = self->rust_module != nullptr;
+  }
   if (self->rust_module == nullptr) {
     return false;
   }
