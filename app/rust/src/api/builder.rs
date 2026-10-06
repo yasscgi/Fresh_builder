@@ -162,6 +162,12 @@ impl NativeViewportSessionInner {
             view_projection,
             [0.035, 0.043, 0.098, 1.0],
         );
+
+        if crate::frame_bridge::capture_enabled() {
+            if let Ok(rgba) = self.renderer.read_rgba8() {
+                crate::frame_bridge::publish(width, height, rgba);
+            }
+        }
     }
 }
 
