@@ -27,7 +27,7 @@ class BuilderWorkspaceController extends ChangeNotifier {
   }
 
   void markOrbit() {
-    if (_navigationLocked) return;
+    if (_navigationLocked || _status == 'Orbit view') return;
     _status = 'Orbit view';
     notifyListeners();
   }
