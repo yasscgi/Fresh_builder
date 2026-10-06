@@ -2,7 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'src/cloud/builder_cloud_models.dart';
+import 'src/cloud/builder_cloud_repository.dart';
+import 'src/cloud/builder_product_repository.dart';
 import 'src/cloud/cloud_account_button.dart';
+import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
 
 Future<void> main() async {
@@ -78,14 +82,71 @@ class BuilderPage extends StatefulWidget {
 class _BuilderPageState extends State<BuilderPage> {
   RigMode _rigMode = RigMode.none;
   int _selectedCategory = 0;
+  BuilderProductSummary? _selectedProduct;
+  BuilderCloudData? _cloudData;
+  bool _cloudLoading = false;
+  String? _cloudError;
 
-  static const categories = <(IconData, String)>[
+  static const fallbackCategories = <(IconData, String)>[
     (Icons.accessibility_new_rounded, 'Pose'),
     (Icons.checkroom_rounded, 'Hat'),
     (Icons.shield_outlined, 'Back'),
     (Icons.sports_martial_arts_rounded, 'Hand'),
     (Icons.layers_rounded, 'Base'),
   ];
+
+  List<(IconData, String)> get _navigationCategories {
+    final cloud = _cloudData;
+    if (cloud == null || cloud.categories.isEmpty) {
+      return fallbackCategories;
+    }
+
+    return cloud.categories
+        .map((category) => (_iconForCategory(category), category.name))
+        .toList(growable: false);
+  }
+
+  IconData _iconForCategory(BuilderCloudCategory category) {
+    final value = '${category.slug} ${category.type}'.toLowerCase();
+    if (value.contains('pose')) return Icons.accessibility_new_rounded;
+    if (value.contains('hat') || value.contains('head')) {
+      return Icons.checkroom_rounded;
+    }
+    if (value.contains('base') || value.contains('stand')) {
+      return Icons.layers_rounded;
+    }
+    if (value.contains('hand') || value.contains('sword')) {
+      return Icons.sports_martial_arts_rounded;
+    }
+    if (value.contains('back')) return Icons.shield_outlined;
+    if (value.contains('svg')) return Icons.draw_rounded;
+    return Icons.category_outlined;
+  }
+
+  Future<void> _openProduct(BuilderProductSummary product) async {
+    setState(() {
+      _selectedProduct = product;
+      _cloudLoading = true;
+      _cloudError = null;
+      _selectedCategory = 0;
+    });
+
+    try {
+      final data = await BuilderCloudRepository().loadBuilderData(product.id);
+      if (!mounted || _selectedProduct?.id != product.id) return;
+      setState(() {
+        _cloudData = data;
+        _cloudLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || _selectedProduct?.id != product.id) return;
+      setState(() {
+        _cloudData = null;
+        _cloudLoading = false;
+        _cloudError = error.toString();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -100,6 +161,8 @@ class _BuilderPageState extends State<BuilderPage> {
                 _TopBar(
                   onToggleTheme: widget.onToggleTheme,
                   cloudReady: widget.cloudReady,
+                  selectedProduct: _selectedProduct,
+                  onProductSelected: _openProduct,
                 ),
                 Expanded(
                   child: compact
@@ -119,13 +182,19 @@ class _BuilderPageState extends State<BuilderPage> {
       children: [
         _CategoryRail(
           selected: _selectedCategory,
-          categories: categories,
+          categories: _navigationCategories,
           onSelect: (index) => setState(() => _selectedCategory = index),
         ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: BuilderViewport(rigMode: _rigMode),
+            child: BuilderViewport(
+              rigMode: _rigMode,
+              productName: _selectedProduct?.name,
+              assetCount: _cloudData?.assets.length,
+              cloudLoading: _cloudLoading,
+              cloudError: _cloudError,
+            ),
           ),
         ),
         SizedBox(
@@ -142,7 +211,15 @@ class _BuilderPageState extends State<BuilderPage> {
   Widget _mobileLayout() {
     return Stack(
       children: [
-        Positioned.fill(child: BuilderViewport(rigMode: _rigMode)),
+        Positioned.fill(
+          child: BuilderViewport(
+            rigMode: _rigMode,
+            productName: _selectedProduct?.name,
+            assetCount: _cloudData?.assets.length,
+            cloudLoading: _cloudLoading,
+            cloudError: _cloudError,
+          ),
+        ),
         Positioned(
           left: 8,
           top: 16,
@@ -150,7 +227,7 @@ class _BuilderPageState extends State<BuilderPage> {
           child: _CategoryRail(
             compact: true,
             selected: _selectedCategory,
-            categories: categories,
+            categories: _navigationCategories,
             onSelect: (index) => setState(() => _selectedCategory = index),
           ),
         ),
@@ -172,10 +249,14 @@ class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.onToggleTheme,
     required this.cloudReady,
+    required this.selectedProduct,
+    required this.onProductSelected,
   });
 
   final VoidCallback onToggleTheme;
   final bool cloudReady;
+  final BuilderProductSummary? selectedProduct;
+  final ValueChanged<BuilderProductSummary> onProductSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -220,6 +301,11 @@ class _TopBar extends StatelessWidget {
             icon: const Icon(Icons.brightness_6_rounded, size: 19),
             tooltip: 'Theme',
             onPressed: onToggleTheme,
+          ),
+          CloudProductPickerButton(
+            cloudReady: cloudReady,
+            selectedProduct: selectedProduct,
+            onSelected: onProductSelected,
           ),
           CloudAccountButton(cloudReady: cloudReady),
           const SizedBox(width: 6),
@@ -494,9 +580,20 @@ class _RigButton extends StatelessWidget {
 }
 
 class BuilderViewport extends StatelessWidget {
-  const BuilderViewport({super.key, required this.rigMode});
+  const BuilderViewport({
+    super.key,
+    required this.rigMode,
+    this.productName,
+    this.assetCount,
+    this.cloudLoading = false,
+    this.cloudError,
+  });
 
   final RigMode rigMode;
+  final String? productName;
+  final int? assetCount;
+  final bool cloudLoading;
+  final String? cloudError;
 
   @override
   Widget build(BuildContext context) {
@@ -521,6 +618,55 @@ class BuilderViewport extends StatelessWidget {
             right: 12,
             child: _ViewCube(),
           ),
+          if (productName != null)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 280),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: colors.surface.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (cloudLoading)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(
+                        cloudError == null
+                            ? Icons.cloud_done_rounded
+                            : Icons.cloud_off_rounded,
+                        size: 15,
+                        color: cloudError == null
+                            ? Colors.cyanAccent
+                            : colors.error,
+                      ),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        cloudError != null
+                            ? 'Cloud load failed'
+                            : '$productName · ${assetCount ?? 0} assets',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Positioned(
             bottom: 14,
             left: 14,
