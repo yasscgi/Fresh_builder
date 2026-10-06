@@ -3,10 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fresh_builder_viewport_texture/fresh_builder_viewport_texture.dart';
 
 void main() {
-  test('texture bridge reports Windows-only support in first desktop stage', () {
+  test('texture bridge reports support on native desktop platforms', () {
     final bridge = FreshBuilderViewportTexture();
-    final expected =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final expected = !kIsWeb &&
+        {
+          TargetPlatform.windows,
+          TargetPlatform.linux,
+          TargetPlatform.macOS,
+        }.contains(defaultTargetPlatform);
     expect(bridge.supported, expected);
     expect(bridge.textureId, isNull);
   });
