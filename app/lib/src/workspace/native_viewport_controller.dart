@@ -290,8 +290,10 @@ class NativeViewportController extends ChangeNotifier {
   }
 
   Future<void> _markTextureFrame() async {
-    if (_textureId == null) return;
+    final session = _session;
+    if (_textureId == null || session == null) return;
     try {
+      await session.publishFrame();
       await _textureBridge.markFrame();
       _textureError = null;
     } catch (error) {
