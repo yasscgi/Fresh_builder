@@ -6,6 +6,7 @@ import 'src/cloud/builder_cloud_models.dart';
 import 'src/cloud/builder_cloud_repository.dart';
 import 'src/cloud/builder_product_repository.dart';
 import 'src/cloud/cloud_account_button.dart';
+import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
 
@@ -84,6 +85,7 @@ class _BuilderPageState extends State<BuilderPage> {
   int _selectedCategory = 0;
   BuilderProductSummary? _selectedProduct;
   BuilderCloudData? _cloudData;
+  String? _selectedAssetId;
   bool _cloudLoading = false;
   String? _cloudError;
 
@@ -95,15 +97,71 @@ class _BuilderPageState extends State<BuilderPage> {
     (Icons.layers_rounded, 'Base'),
   ];
 
-  List<(IconData, String)> get _navigationCategories {
+  List<BuilderCloudCategory?> get _cloudNavigationCategories {
     final cloud = _cloudData;
-    if (cloud == null || cloud.categories.isEmpty) {
-      return fallbackCategories;
+    if (cloud == null) return const <BuilderCloudCategory?>[];
+
+    final categories = <BuilderCloudCategory?>[...cloud.categories];
+    final characterMode = cloud.config?.mode == null ||
+        cloud.config?.mode == 'character';
+
+    if (characterMode &&
+        !cloud.categories.any((category) => category.type == 'pose')) {
+      categories.insert(0, null);
+    }
+    return categories;
+  }
+
+  List<(IconData, String)> get _navigationCategories {
+    final cloudCategories = _cloudNavigationCategories;
+    if (cloudCategories.isEmpty) return fallbackCategories;
+
+    return cloudCategories
+        .map(
+          (category) => category == null
+              ? (Icons.accessibility_new_rounded, 'Pose')
+              : (_iconForCategory(category), category.name),
+        )
+        .toList(growable: false);
+  }
+
+  BuilderCloudCategory? get _selectedCloudCategory {
+    final categories = _cloudNavigationCategories;
+    if (_selectedCategory < 0 || _selectedCategory >= categories.length) {
+      return null;
+    }
+    return categories[_selectedCategory];
+  }
+
+  List<BuilderCloudAsset> get _visibleAssets {
+    final cloud = _cloudData;
+    if (cloud == null) return const <BuilderCloudAsset>[];
+
+    final category = _selectedCloudCategory;
+    if (category == null) {
+      return cloud.assets
+          .where((asset) => asset.type == 'pose')
+          .toList(growable: false);
     }
 
-    return cloud.categories
-        .map((category) => (_iconForCategory(category), category.name))
+    return cloud.assets
+        .where(
+          (asset) =>
+              asset.categoryId == category.id ||
+              asset.categorySlug == category.slug,
+        )
         .toList(growable: false);
+  }
+
+  void _selectCategory(int index) {
+    setState(() {
+      _selectedCategory = index;
+      _selectedAssetId = null;
+    });
+  }
+
+  void _selectAsset(BuilderCloudAsset asset) {
+    setState(() => _selectedAssetId = asset.id);
   }
 
   IconData _iconForCategory(BuilderCloudCategory category) {
@@ -129,6 +187,7 @@ class _BuilderPageState extends State<BuilderPage> {
       _cloudLoading = true;
       _cloudError = null;
       _selectedCategory = 0;
+      _selectedAssetId = null;
     });
 
     try {
@@ -183,17 +242,31 @@ class _BuilderPageState extends State<BuilderPage> {
         _CategoryRail(
           selected: _selectedCategory,
           categories: _navigationCategories,
-          onSelect: (index) => setState(() => _selectedCategory = index),
+          onSelect: _selectCategory,
         ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: BuilderViewport(
-              rigMode: _rigMode,
-              productName: _selectedProduct?.name,
-              assetCount: _cloudData?.assets.length,
-              cloudLoading: _cloudLoading,
-              cloudError: _cloudError,
+            child: Column(
+              children: [
+                Expanded(
+                  child: BuilderViewport(
+                    rigMode: _rigMode,
+                    productName: _selectedProduct?.name,
+                    assetCount: _cloudData?.assets.length,
+                    cloudLoading: _cloudLoading,
+                    cloudError: _cloudError,
+                  ),
+                ),
+                if (_cloudData != null) ...[
+                  const SizedBox(height: 8),
+                  CloudAssetDock(
+                    assets: _visibleAssets,
+                    selectedAssetId: _selectedAssetId,
+                    onSelected: _selectAsset,
+                  ),
+                ],
+              ],
             ),
           ),
         ),
@@ -228,9 +301,20 @@ class _BuilderPageState extends State<BuilderPage> {
             compact: true,
             selected: _selectedCategory,
             categories: _navigationCategories,
-            onSelect: (index) => setState(() => _selectedCategory = index),
+            onSelect: _selectCategory,
           ),
         ),
+        if (_cloudData != null)
+          Positioned(
+            left: 72,
+            right: 8,
+            bottom: 82,
+            child: CloudAssetDock(
+              assets: _visibleAssets,
+              selectedAssetId: _selectedAssetId,
+              onSelected: _selectAsset,
+            ),
+          ),
         Positioned(
           left: 72,
           right: 8,
