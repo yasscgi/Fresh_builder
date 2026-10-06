@@ -14,7 +14,6 @@ G_BEGIN_DECLS
 #define FRESH_BUILDER_VIEWPORT_TEXTURE_TYPE_PLUGIN \
   (fresh_builder_viewport_texture_plugin_get_type())
 
-FRESH_BUILDER_VIEWPORT_TEXTURE_PLUGIN_EXPORT
 G_DECLARE_FINAL_TYPE(
     FreshBuilderViewportTexturePlugin,
     fresh_builder_viewport_texture_plugin,
