@@ -166,6 +166,25 @@ final class BuilderCloudAsset {
   }
 }
 
+final class BuilderAssetChoice {
+  const BuilderAssetChoice({
+    required this.asset,
+    this.variation,
+  });
+
+  final BuilderCloudAsset asset;
+  final BuilderCloudVariation? variation;
+
+  String get assetId => asset.id;
+  String? get variationId => variation?.id;
+  String get name => variation?.name ?? asset.name;
+  String get selectionKey =>
+      variationId == null ? asset.id : '${asset.id}|$variationId';
+
+  JsonMap get metadata =>
+      variation?.metadata.isNotEmpty == true ? variation!.metadata : asset.metadata;
+}
+
 final class BuilderCloudData {
   const BuilderCloudData({
     required this.config,
