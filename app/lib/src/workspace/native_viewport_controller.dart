@@ -8,6 +8,7 @@ class NativeViewportController extends ChangeNotifier {
   NativeViewportSession? _session;
   BridgeCameraState? _camera;
   NativeSceneStatus? _sceneStatus;
+  String? _sceneError;
   String? _error;
   final Map<String, ({String path, double metersPerUnit})> _pendingScenes = {};
   bool _initializing = false;
@@ -24,6 +25,7 @@ class NativeViewportController extends ChangeNotifier {
   String? get error => _error;
   BridgeCameraState? get camera => _camera;
   NativeSceneStatus? get sceneStatus => _sceneStatus;
+  String? get sceneError => _sceneError;
 
   Future<void> ensureInitialized({
     required double logicalWidth,
@@ -208,10 +210,10 @@ class NativeViewportController extends ChangeNotifier {
         path: pending.path,
         metersPerUnit: pending.metersPerUnit,
       );
-      _error = null;
+      _sceneError = null;
       notifyListeners();
     } catch (error) {
-      _error = error.toString();
+      _sceneError = error.toString();
       notifyListeners();
     }
   }
@@ -232,6 +234,7 @@ class NativeViewportController extends ChangeNotifier {
   Future<void> clearScenes() async {
     _pendingScenes.clear();
     _sceneStatus = null;
+    _sceneError = null;
     final session = _session;
     if (session != null) {
       try {
@@ -268,7 +271,7 @@ class NativeViewportController extends ChangeNotifier {
 
   int _physicalExtent(double logical, double ratio) {
     final value = (logical * ratio).round();
-    return value.clamp(1, 16384);
+    return value.clamp(1, 16384).toInt();
   }
 
   @override
