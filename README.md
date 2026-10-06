@@ -31,6 +31,9 @@ Implemented:
 - flutter_rust_bridge 2.13 source contract
 - WGPU 30 adapter probing
 - CI definitions for Rust, FRB codegen and Flutter analysis
+- Supabase Flutter runtime using the existing FreshSTL Builder schema
+- typed loading of builder_configs, builder_categories and builder_assets
+- publishable-key-only client configuration; no privileged key is shipped in the app
 
 Next rendering milestone:
 - native WGPU viewport surface/texture transport
@@ -70,3 +73,18 @@ cargo test --workspace
 ```
 
 The Flutter-facing Rust crate lives at `app/rust` and depends on the reusable engine crates rather than duplicating their logic.
+
+
+## Supabase runtime
+
+The native client connects to the existing FreshSTL Supabase project. It does not create a second Builder schema.
+
+Client credentials are public runtime values and can be overridden at build time:
+
+```bash
+flutter run \
+  --dart-define=SUPABASE_URL=https://PROJECT.supabase.co \
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+Access to Builder configuration and assets remains controlled by the existing database RLS policies and `user_has_product_access(product_id)`. Never place a secret/service-role key in the Flutter application.
