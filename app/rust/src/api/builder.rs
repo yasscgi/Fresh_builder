@@ -150,6 +150,21 @@ struct NativeViewportSessionInner {
     scenes: HashMap<String, GpuScene>,
 }
 
+impl NativeViewportSessionInner {
+    fn render_frame(&self) {
+        let (width, height) = self.renderer.size();
+        let aspect = width as f32 / height.max(1) as f32;
+        let view_projection = self.camera.view_projection(aspect);
+        let scenes: Vec<&GpuScene> = self.scenes.values().collect();
+
+        self.renderer.render_scenes(
+            &scenes,
+            view_projection,
+            [0.035, 0.043, 0.098, 1.0],
+        );
+    }
+}
+
 pub fn core_status() -> CoreStatus {
     CoreStatus {
         name: "Fresh Builder Native Core".to_owned(),
@@ -305,7 +320,9 @@ impl NativeViewportSession {
 
     pub fn resize(&self, width: u32, height: u32) -> Result<(), String> {
         let mut inner = self.lock_inner()?;
-        inner.renderer.resize(width, height)
+        inner.renderer.resize(width, height)?;
+        inner.render_frame();
+        Ok(())
     }
 
     pub fn upsert_local_scene(
@@ -340,6 +357,7 @@ impl NativeViewportSession {
                 let mut inner = self.lock_inner()?;
                 let gpu_scene = inner.renderer.upload_scene(&scene)?;
                 inner.scenes.insert(scene_key, gpu_scene);
+                inner.render_frame();
                 Ok(status)
             }
             AssetFormat::Fbx => Ok(NativeSceneStatus {
@@ -371,18 +389,29 @@ impl NativeViewportSession {
 
     pub fn remove_scene(&self, scene_key: String) -> Result<bool, String> {
         let mut inner = self.lock_inner()?;
-        Ok(inner.scenes.remove(&scene_key).is_some())
+        let removed = inner.scenes.remove(&scene_key).is_some();
+        if removed {
+            inner.render_frame();
+        }
+        Ok(removed)
     }
 
     pub fn clear_scenes(&self) -> Result<(), String> {
         let mut inner = self.lock_inner()?;
         inner.scenes.clear();
+        inner.render_frame();
         Ok(())
     }
 
     pub fn loaded_scene_count(&self) -> Result<u32, String> {
         let inner = self.lock_inner()?;
         Ok(inner.scenes.len() as u32)
+    }
+
+    pub fn render_frame(&self) -> Result<(), String> {
+        let inner = self.lock_inner()?;
+        inner.render_frame();
+        Ok(())
     }
 
     pub fn render_clear(&self, color: BridgeColor) -> Result<(), String> {
@@ -401,12 +430,14 @@ impl NativeViewportSession {
     ) -> Result<BridgeCameraState, String> {
         let mut inner = self.lock_inner()?;
         inner.camera.orbit(delta_x, delta_y, sensitivity);
+        inner.render_frame();
         Ok(inner.camera.into())
     }
 
     pub fn zoom(&self, delta: f32, sensitivity: f32) -> Result<BridgeCameraState, String> {
         let mut inner = self.lock_inner()?;
         inner.camera.zoom(delta, sensitivity);
+        inner.render_frame();
         Ok(inner.camera.into())
     }
 
@@ -416,6 +447,7 @@ impl NativeViewportSession {
     ) -> Result<BridgeCameraState, String> {
         let mut inner = self.lock_inner()?;
         inner.camera.set_preset(preset.into());
+        inner.render_frame();
         Ok(inner.camera.into())
     }
 
