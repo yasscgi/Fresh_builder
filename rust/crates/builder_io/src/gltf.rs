@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use builder_render::{RenderMesh, RenderScene, RenderVertex};
+use builder_render::{identity_matrix, RenderJoint, RenderMesh, RenderScene, RenderSkeleton, RenderVertex};
 
 pub fn decode_gltf_scene(path: impl AsRef<Path>, meters_per_unit: f32) -> Result<RenderScene, String> {
     let path = path.as_ref();
@@ -13,11 +13,36 @@ pub fn decode_gltf_scene(path: impl AsRef<Path>, meters_per_unit: f32) -> Result
         1.0
     };
 
-    let joint_count = document
-        .skins()
-        .map(|skin| skin.joints().count() as u32)
-        .max()
-        .unwrap_or(0);
+    let mut skeleton = RenderSkeleton::default();
+    if let Some(skin) = document.skins().next() {
+        let reader = skin.reader(|buffer| Some(&buffers[buffer.index()]));
+        let inverse_bind_matrices: Vec<[[f32; 4]; 4]> = reader
+            .read_inverse_bind_matrices()
+            .map(|values| values.collect())
+            .unwrap_or_else(|| vec![identity_matrix(); skin.joints().count()]);
+
+        let joint_nodes: Vec<_> = skin.joints().collect();
+        if inverse_bind_matrices.len() != joint_nodes.len() {
+            return Err("glTF skin inverse-bind matrix count does not match joint count".to_owned());
+        }
+
+        skeleton.joints = joint_nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| {
+                let parent = joint_nodes.iter().position(|candidate| {
+                    candidate.children().any(|child| child.index() == node.index())
+                }).map(|value| value as u32);
+
+                RenderJoint {
+                    name: node.name().map(str::to_owned).unwrap_or_else(|| format!("joint_{}", node.index())),
+                    parent,
+                    inverse_bind_matrix: inverse_bind_matrices[index],
+                    local_matrix: node.transform().matrix(),
+                }
+            })
+            .collect();
+    }
 
     let mut meshes = Vec::new();
 
@@ -91,7 +116,7 @@ pub fn decode_gltf_scene(path: impl AsRef<Path>, meters_per_unit: f32) -> Result
         }
     }
 
-    let scene = RenderScene { meshes, joint_count };
+    let scene = RenderScene { meshes, skeleton };
     if scene.is_empty() {
         return Err(format!("{} contains no renderable mesh geometry", path.display()));
     }
