@@ -60,7 +60,7 @@ impl MeshPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Fresh Builder Mesh Pipeline Layout"),
-            bind_group_layouts: &[&camera_layout, &joint_palette_bind_group_layout],
+            bind_group_layouts: &[Some(&camera_layout), Some(&joint_palette_bind_group_layout)],
             immediate_size: 0,
         });
 
