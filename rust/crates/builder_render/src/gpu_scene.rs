@@ -34,6 +34,10 @@ impl GpuScene {
         self.skeleton_pose.joint_index(name)
     }
 
+    pub fn joint_names(&self) -> &[String] {
+        self.skeleton_pose.joint_names()
+    }
+
     pub fn set_joint_local_matrix(
         &mut self,
         queue: &wgpu::Queue,
