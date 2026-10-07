@@ -1,4 +1,4 @@
-use crate::{GpuAdapterInfo, GpuContext, GpuScene, MeshPipeline, RenderScene};
+use crate::{GpuAdapterInfo, GpuContext, GpuScene, Mat4, MeshPipeline, RenderScene};
 
 const DEFAULT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
@@ -96,7 +96,21 @@ impl ViewportRenderer {
     }
 
     pub fn upload_scene(&self, scene: &RenderScene) -> Result<GpuScene, String> {
-        self.context.upload_scene(scene)
+        self.context
+            .upload_scene(scene, &self.pipeline.joint_palette_bind_group_layout)
+    }
+
+    pub fn set_scene_joint_local_matrix(
+        &self,
+        scene: &mut GpuScene,
+        joint_index: usize,
+        matrix: Mat4,
+    ) -> Result<(), String> {
+        scene.set_joint_local_matrix(&self.context.queue, joint_index, matrix)
+    }
+
+    pub fn reset_scene_pose(&self, scene: &mut GpuScene) -> Result<(), String> {
+        scene.reset_pose(&self.context.queue)
     }
 
     pub fn render_scenes(
@@ -151,6 +165,7 @@ impl ViewportRenderer {
             pass.set_bind_group(0, &self.pipeline.camera_bind_group, &[]);
 
             for scene in scenes {
+                pass.set_bind_group(1, &scene.joint_palette_bind_group, &[]);
                 for mesh in &scene.meshes {
                     pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     pass.set_index_buffer(
