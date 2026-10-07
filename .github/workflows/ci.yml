@@ -12,7 +12,14 @@ jobs:
   native-core:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        shell: bash
+        run: |
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          git init .
+          git remote add origin https://github.com/yasscgi/Fresh_builder.git
+          git fetch --depth 1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
 
       - name: Install stable Rust
         shell: bash
@@ -30,7 +37,14 @@ jobs:
   flutter-bridge:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        shell: bash
+        run: |
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          git init .
+          git remote add origin https://github.com/yasscgi/Fresh_builder.git
+          git fetch --depth 1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
 
       - name: Install Linux prerequisites
         shell: bash
@@ -96,7 +110,14 @@ jobs:
   windows-texture:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        shell: pwsh
+        run: |
+          $sourceSha = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git init .
+          git remote add origin https://github.com/yasscgi/Fresh_builder.git
+          git fetch --depth 1 origin $sourceSha
+          git checkout --detach FETCH_HEAD
 
       - name: Install stable Rust
         shell: pwsh
@@ -150,7 +171,14 @@ jobs:
   linux-texture:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        shell: bash
+        run: |
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          git init .
+          git remote add origin https://github.com/yasscgi/Fresh_builder.git
+          git fetch --depth 1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
 
       - name: Install Linux desktop dependencies
         shell: bash
@@ -211,7 +239,14 @@ jobs:
   macos-texture:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        shell: bash
+        run: |
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          git init .
+          git remote add origin https://github.com/yasscgi/Fresh_builder.git
+          git fetch --depth 1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
 
       - name: Install stable Rust
         shell: bash
