@@ -73,26 +73,50 @@ impl GpuContext {
         &self,
         scene: &crate::RenderScene,
     ) -> Result<SceneUploadStats, String> {
-        if scene.is_empty() {
-            return Err("Cannot upload an empty Builder scene".to_owned());
-        }
-
-        for mesh in &scene.meshes {
-            if mesh.indices.iter().any(|index| *index as usize >= mesh.vertices.len()) {
-                return Err(format!("Mesh {} contains an out-of-range index", mesh.name));
-            }
-            if mesh.skinned && scene.joint_count == 0 {
-                return Err(format!("Skinned mesh {} has no scene joints", mesh.name));
-            }
-        }
-
-        Ok(SceneUploadStats {
-            mesh_count: scene.meshes.len(),
-            vertex_count: scene.vertex_count(),
-            index_count: scene.index_count(),
-            joint_count: scene.joint_count(),
-        })
+        validate_scene_for_upload(scene)
     }
+}
+
+fn validate_scene_for_upload(scene: &crate::RenderScene) -> Result<SceneUploadStats, String> {
+    if scene.is_empty() {
+        return Err("Cannot upload an empty Builder scene".to_owned());
+    }
+
+    crate::SkeletonPose::from_skeleton(&scene.skeleton)?;
+
+    let joint_count = scene.joint_count();
+    for mesh in &scene.meshes {
+        if mesh.indices.iter().any(|index| *index as usize >= mesh.vertices.len()) {
+            return Err(format!("Mesh {} contains an out-of-range index", mesh.name));
+        }
+
+        if mesh.skinned && joint_count == 0 {
+            return Err(format!("Skinned mesh {} has no scene joints", mesh.name));
+        }
+
+        for vertex in &mesh.vertices {
+            for influence in 0..4 {
+                let weight = vertex.weights[influence];
+                if !weight.is_finite() || weight < 0.0 {
+                    return Err(format!("Mesh {} contains an invalid skin weight", mesh.name));
+                }
+
+                if mesh.skinned && weight > 0.0 && vertex.joints[influence] as u32 >= joint_count {
+                    return Err(format!(
+                        "Mesh {} references joint {} but the scene only has {} joints",
+                        mesh.name, vertex.joints[influence], joint_count
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(SceneUploadStats {
+        mesh_count: scene.meshes.len(),
+        vertex_count: scene.vertex_count(),
+        index_count: scene.index_count(),
+        joint_count,
+    })
 }
 
 fn adapter_info(adapter: &wgpu::Adapter) -> GpuAdapterInfo {
@@ -109,7 +133,8 @@ fn adapter_info(adapter: &wgpu::Adapter) -> GpuAdapterInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::GpuAdapterInfo;
+    use super::{validate_scene_for_upload, GpuAdapterInfo};
+    use crate::{identity_matrix, RenderJoint, RenderMesh, RenderScene, RenderSkeleton, RenderVertex};
 
     #[test]
     fn adapter_info_is_platform_neutral_data() {
@@ -123,5 +148,50 @@ mod tests {
 
         assert_eq!(info.backend, "Vulkan");
         assert_eq!(info.device_type, "DiscreteGpu");
+    }
+
+    #[test]
+    fn rejects_out_of_range_weighted_joint_index() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "body".into(),
+                vertices: vec![RenderVertex {
+                    joints: [2, 0, 0, 0],
+                    weights: [1.0, 0.0, 0.0, 0.0],
+                    ..RenderVertex::default()
+                }],
+                indices: vec![0],
+                skinned: true,
+            }],
+            skeleton: RenderSkeleton {
+                joints: vec![RenderJoint {
+                    name: "root".into(),
+                    parent: None,
+                    inverse_bind_matrix: identity_matrix(),
+                    local_matrix: identity_matrix(),
+                }],
+            },
+        };
+
+        assert!(validate_scene_for_upload(&scene).is_err());
+    }
+
+    #[test]
+    fn zero_weight_joint_indices_are_safe_for_unskinned_vertices() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "static".into(),
+                vertices: vec![RenderVertex {
+                    joints: [u16::MAX; 4],
+                    weights: [0.0; 4],
+                    ..RenderVertex::default()
+                }],
+                indices: vec![0],
+                skinned: false,
+            }],
+            skeleton: RenderSkeleton::default(),
+        };
+
+        assert!(validate_scene_for_upload(&scene).is_ok());
     }
 }
