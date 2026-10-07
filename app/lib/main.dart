@@ -413,6 +413,9 @@ class _BuilderPageState extends State<BuilderPage> {
   }
 
   Future<void> _openProduct(BuilderProductSummary product) async {
+    await _nativeRig.reset();
+    _workspace.cancelPoseGesture();
+    _workspace.setRigVisible(false);
     await _nativeViewport.clearScenes();
     setState(() {
       _selectedProduct = product;
