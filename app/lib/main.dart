@@ -12,9 +12,11 @@ import 'src/cloud/cloud_account_button.dart';
 import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
+import 'src/rust/api/rig.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/workspace/builder_workspace.dart';
 import 'src/workspace/current_builder_ui.dart';
+import 'src/workspace/native_rig_controller.dart';
 import 'src/workspace/native_viewport_controller.dart';
 import 'src/workspace/native_viewport_surface.dart';
 
@@ -24,8 +26,6 @@ Future<void> main() async {
   final cloudReady = await FreshSupabaseBootstrap.initialize();
   runApp(FreshBuilderApp(cloudReady: cloudReady));
 }
-
-enum RigMode { none, ik, fk }
 
 class FreshBuilderApp extends StatefulWidget {
   const FreshBuilderApp({super.key, required this.cloudReady});
@@ -92,7 +92,6 @@ class BuilderPage extends StatefulWidget {
 }
 
 class _BuilderPageState extends State<BuilderPage> {
-  RigMode _rigMode = RigMode.none;
   int _selectedCategory = 0;
   BuilderProductSummary? _selectedProduct;
   BuilderCloudData? _cloudData;
@@ -104,6 +103,7 @@ class _BuilderPageState extends State<BuilderPage> {
   String? _cloudError;
   String? _assetError;
   late final BuilderWorkspaceController _workspace;
+  late final NativeRigController _nativeRig;
   late final NativeViewportController _nativeViewport;
 
   static const fallbackCategories = <(IconData, String)>[
@@ -118,7 +118,9 @@ class _BuilderPageState extends State<BuilderPage> {
   void initState() {
     super.initState();
     _workspace = BuilderWorkspaceController();
+    _nativeRig = NativeRigController();
     _nativeViewport = NativeViewportController();
+    unawaited(_nativeRig.ensureInitialized());
     if (widget.cloudReady) {
       _assetCache = BuilderAssetDiskCache();
     }
@@ -168,9 +170,20 @@ class _BuilderPageState extends State<BuilderPage> {
   }
 
 
+  Future<void> _setBridgeRigMode(BridgeRigMode mode) async {
+    await _nativeRig.setMode(mode);
+    if (!mounted) return;
+    _workspace.setRigVisible(_nativeRig.mode != BridgeRigMode.none);
+  }
+
+  Future<void> _setHandOpen(bool open) async {
+    await _nativeRig.setHandOpen(open);
+  }
+
   @override
   void dispose() {
     _assetCache?.dispose();
+    _nativeRig.dispose();
     _nativeViewport.dispose();
     _workspace.dispose();
     super.dispose();
@@ -456,7 +469,7 @@ class _BuilderPageState extends State<BuilderPage> {
                     allowDirectOrbit: true,
                     child: BuilderViewport(
                     nativeController: _nativeViewport,
-                    rigMode: _rigMode,
+                    rigController: _nativeRig,
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
                     cloudLoading: _cloudLoading,
@@ -500,32 +513,28 @@ class _BuilderPageState extends State<BuilderPage> {
                     right: 10,
                     top: 96,
                     child: ListenableBuilder(
-                      listenable: _workspace,
+                      listenable: Listenable.merge([_workspace, _nativeRig]),
                       builder: (context, _) => CurrentBuilderRigRail(
                         tablet: true,
-                        ikActive: _rigMode == RigMode.ik,
-                        fkActive: _rigMode == RigMode.fk,
-                        handOpen: _workspace.handOpen,
-                        onIk: () {
-                          setState(() {
-                            _rigMode =
-                                _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
-                          });
-                          _workspace.setRigVisible(_rigMode != RigMode.none);
-                        },
-                        onFk: () {
-                          setState(() {
-                            _rigMode =
-                                _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
-                          });
-                          _workspace.setRigVisible(_rigMode != RigMode.none);
-                        },
-                        onOpenHand: () {
-                          if (!_workspace.handOpen) _workspace.toggleHand();
-                        },
-                        onCloseHand: () {
-                          if (_workspace.handOpen) _workspace.toggleHand();
-                        },
+                        ikActive: _nativeRig.mode == BridgeRigMode.ik,
+                        fkActive: _nativeRig.mode == BridgeRigMode.fk,
+                        handOpen: _nativeRig.handOpen,
+                        onIk: () => unawaited(
+                          _setBridgeRigMode(
+                            _nativeRig.mode == BridgeRigMode.ik
+                                ? BridgeRigMode.none
+                                : BridgeRigMode.ik,
+                          ),
+                        ),
+                        onFk: () => unawaited(
+                          _setBridgeRigMode(
+                            _nativeRig.mode == BridgeRigMode.fk
+                                ? BridgeRigMode.none
+                                : BridgeRigMode.fk,
+                          ),
+                        ),
+                        onOpenHand: () => unawaited(_setHandOpen(true)),
+                        onCloseHand: () => unawaited(_setHandOpen(false)),
                       ),
                     ),
                   ),
@@ -534,6 +543,7 @@ class _BuilderPageState extends State<BuilderPage> {
                   bottom: _cloudData == null ? 14 : 168,
                   child: BuilderViewportStatus(
                     controller: _workspace,
+                    nativeController: _nativeViewport,
                     assetName: _selectedAsset?.name,
                     assetLoading: _assetLoading,
                     cacheHit: _cachedAsset?.cacheHit,
@@ -559,11 +569,8 @@ class _BuilderPageState extends State<BuilderPage> {
           SizedBox(
             width: 332,
             child: _RigPanel(
-              mode: _rigMode,
-              onModeChanged: (mode) {
-                setState(() => _rigMode = mode);
-                _workspace.setRigVisible(mode != RigMode.none);
-              },
+              rigController: _nativeRig,
+              onModeChanged: (mode) => unawaited(_setBridgeRigMode(mode)),
               workspace: _workspace,
             ),
           ),
@@ -581,7 +588,7 @@ class _BuilderPageState extends State<BuilderPage> {
             allowDirectOrbit: false,
             child: BuilderViewport(
             nativeController: _nativeViewport,
-            rigMode: _rigMode,
+            rigController: _nativeRig,
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
             cloudLoading: _cloudLoading,
@@ -621,31 +628,27 @@ class _BuilderPageState extends State<BuilderPage> {
           right: 8,
           top: 94,
           child: ListenableBuilder(
-            listenable: _workspace,
-            builder: (context, _) => CurrentBuilderRigRail(
-              ikActive: _rigMode == RigMode.ik,
-              fkActive: _rigMode == RigMode.fk,
-              handOpen: _workspace.handOpen,
-              onIk: () {
-                setState(() {
-                  _rigMode =
-                      _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
-                });
-                _workspace.setRigVisible(_rigMode != RigMode.none);
-              },
-              onFk: () {
-                setState(() {
-                  _rigMode =
-                      _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
-                });
-                _workspace.setRigVisible(_rigMode != RigMode.none);
-              },
-              onOpenHand: () {
-                if (!_workspace.handOpen) _workspace.toggleHand();
-              },
-              onCloseHand: () {
-                if (_workspace.handOpen) _workspace.toggleHand();
-              },
+            listenable: Listenable.merge([_workspace, _nativeRig]),
+                      builder: (context, _) => CurrentBuilderRigRail(
+              ikActive: _nativeRig.mode == BridgeRigMode.ik,
+              fkActive: _nativeRig.mode == BridgeRigMode.fk,
+              handOpen: _nativeRig.handOpen,
+              onIk: () => unawaited(
+                          _setBridgeRigMode(
+                            _nativeRig.mode == BridgeRigMode.ik
+                                ? BridgeRigMode.none
+                                : BridgeRigMode.ik,
+                          ),
+                        ),
+              onFk: () => unawaited(
+                          _setBridgeRigMode(
+                            _nativeRig.mode == BridgeRigMode.fk
+                                ? BridgeRigMode.none
+                                : BridgeRigMode.fk,
+                          ),
+                        ),
+              onOpenHand: () => unawaited(_setHandOpen(true)),
+                        onCloseHand: () => unawaited(_setHandOpen(false)),
             ),
           ),
         ),
@@ -958,13 +961,13 @@ class _HeaderIconButton extends StatelessWidget {
 
 class _RigPanel extends StatelessWidget {
   const _RigPanel({
-    required this.mode,
+    required this.rigController,
     required this.onModeChanged,
     required this.workspace,
   });
 
-  final RigMode mode;
-  final ValueChanged<RigMode> onModeChanged;
+  final NativeRigController rigController;
+  final ValueChanged<BridgeRigMode> onModeChanged;
   final BuilderWorkspaceController workspace;
 
   @override
@@ -1003,8 +1006,9 @@ class _RigPanel extends StatelessWidget {
               ],
             ),
             child: ListenableBuilder(
-              listenable: workspace,
+              listenable: Listenable.merge([workspace, rigController]),
               builder: (context, _) {
+                final mode = rigController.mode;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -1017,7 +1021,7 @@ class _RigPanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      mode == RigMode.none
+                      mode == BridgeRigMode.none
                           ? 'Rig controls'
                           : '${mode.name.toUpperCase()} active',
                       style: TextStyle(
@@ -1040,9 +1044,9 @@ class _RigPanel extends StatelessWidget {
                           Expanded(
                             child: _SegmentRigButton(
                               label: 'IK',
-                              selected: mode == RigMode.ik,
+                              selected: mode == BridgeRigMode.ik,
                               onTap: () => onModeChanged(
-                                mode == RigMode.ik ? RigMode.none : RigMode.ik,
+                                mode == BridgeRigMode.ik ? BridgeRigMode.none : BridgeRigMode.ik,
                               ),
                             ),
                           ),
@@ -1050,9 +1054,9 @@ class _RigPanel extends StatelessWidget {
                           Expanded(
                             child: _SegmentRigButton(
                               label: 'FK',
-                              selected: mode == RigMode.fk,
+                              selected: mode == BridgeRigMode.fk,
                               onTap: () => onModeChanged(
-                                mode == RigMode.fk ? RigMode.none : RigMode.fk,
+                                mode == BridgeRigMode.fk ? BridgeRigMode.none : BridgeRigMode.fk,
                               ),
                             ),
                           ),
@@ -1129,20 +1133,16 @@ class _RigPanel extends StatelessWidget {
                         Expanded(
                           child: _HandStateButton(
                             label: 'Open',
-                            selected: workspace.handOpen,
-                            onTap: () {
-                              if (!workspace.handOpen) workspace.toggleHand();
-                            },
+                            selected: rigController.handOpen,
+                            onTap: () => unawaited(rigController.setHandOpen(true)),
                           ),
                         ),
                         const SizedBox(width: 7),
                         Expanded(
                           child: _HandStateButton(
                             label: 'Close',
-                            selected: !workspace.handOpen,
-                            onTap: () {
-                              if (workspace.handOpen) workspace.toggleHand();
-                            },
+                            selected: !rigController.handOpen,
+                            onTap: () => unawaited(rigController.setHandOpen(false)),
                           ),
                         ),
                       ],
@@ -1285,7 +1285,7 @@ class BuilderViewport extends StatelessWidget {
   const BuilderViewport({
     super.key,
     required this.nativeController,
-    required this.rigMode,
+    required this.rigController,
     this.productName,
     this.assetCount,
     this.cloudLoading = false,
@@ -1298,7 +1298,7 @@ class BuilderViewport extends StatelessWidget {
   });
 
   final NativeViewportController nativeController;
-  final RigMode rigMode;
+  final NativeRigController rigController;
   final String? productName;
   final int? assetCount;
   final bool cloudLoading;
@@ -1313,9 +1313,10 @@ class BuilderViewport extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return ListenableBuilder(
-      listenable: nativeController,
+      listenable: Listenable.merge([nativeController, rigController]),
       builder: (context, _) {
         final textureId = nativeController.textureId;
+        final rigMode = rigController.mode;
 
         return ClipRRect(
           borderRadius: BorderRadius.circular(18),
@@ -1338,8 +1339,8 @@ class BuilderViewport extends StatelessWidget {
                       grid: Theme.of(context).dividerColor,
                       accent: colors.primary,
                       foreground: colors.onSurface,
-                      showRig: rigMode != RigMode.none,
-                      ik: rigMode == RigMode.ik,
+                      showRig: rigMode != BridgeRigMode.none,
+                      ik: rigMode == BridgeRigMode.ik,
                     ),
                     child: const SizedBox.expand(),
                   ),
