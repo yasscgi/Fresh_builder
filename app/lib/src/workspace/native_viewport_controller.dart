@@ -17,6 +17,7 @@ class NativeViewportController extends ChangeNotifier {
   String? _error;
   final Map<String, ({String path, double metersPerUnit})> _pendingScenes = {};
   final Set<String> _loadedSceneKeys = <String>{};
+  final Map<String, List<String>> _jointNamesByScene = <String, List<String>>{};
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -36,6 +37,8 @@ class NativeViewportController extends ChangeNotifier {
   String? get textureError => _textureError;
   bool get textureAvailable => _textureId != null;
   bool hasLoadedScene(String sceneKey) => _loadedSceneKeys.contains(sceneKey);
+  List<String> sceneJointNames(String sceneKey) =>
+      List<String>.unmodifiable(_jointNamesByScene[sceneKey] ?? const <String>[]);
 
   Future<void> ensureInitialized({
     required double logicalWidth,
@@ -220,8 +223,11 @@ class NativeViewportController extends ChangeNotifier {
       );
       if (_sceneStatus?.loadedToGpu == true) {
         _loadedSceneKeys.add(sceneKey);
+        _jointNamesByScene[sceneKey] =
+            await session.sceneJointNames(sceneKey: sceneKey);
       } else {
         _loadedSceneKeys.remove(sceneKey);
+        _jointNamesByScene.remove(sceneKey);
       }
       _sceneError = null;
       await _markTextureFrame();
@@ -235,6 +241,7 @@ class NativeViewportController extends ChangeNotifier {
   Future<void> removeScene(String sceneKey) async {
     _pendingScenes.remove(sceneKey);
     _loadedSceneKeys.remove(sceneKey);
+    _jointNamesByScene.remove(sceneKey);
     final session = _session;
     if (session != null) {
       try {
@@ -250,6 +257,7 @@ class NativeViewportController extends ChangeNotifier {
   Future<void> clearScenes() async {
     _pendingScenes.clear();
     _loadedSceneKeys.clear();
+    _jointNamesByScene.clear();
     _sceneStatus = null;
     _sceneError = null;
     final session = _session;
