@@ -5,166 +5,260 @@ on:
     branches:
       - main
       - "feat/**"
+      - "fix/**"
   pull_request:
 
 jobs:
   native-core:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Test reusable Rust workspace
-        working-directory: rust
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cd rust
+          cargo test --workspace
 
   flutter-bridge:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y curl git unzip xz-utils zip libglu1-mesa clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
 
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" config --enable-linux-desktop
+          "$HOME/flutter/bin/flutter" --version
 
       - name: Install flutter_rust_bridge codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
 
       - name: Flutter packages
-        working-directory: app
-        run: flutter pub get
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          cd app
+          flutter pub get
 
       - name: Generate Flutter/Rust bridge
-        working-directory: app
-        run: flutter_rust_bridge_codegen generate
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          cd app
+          flutter_rust_bridge_codegen generate
 
       - name: Test Flutter-facing Rust crate
-        working-directory: app/rust
-        run: cargo test
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cd app/rust
+          cargo test
 
       - name: Flutter analyze
-        working-directory: app
-        run: flutter analyze
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          cd app
+          flutter analyze
 
       - name: Flutter tests
-        working-directory: app
-        run: flutter test
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          cd app
+          flutter test
 
   windows-texture:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+
+      - name: Install stable Rust
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+          .\rustup-init.exe -y --profile minimal --default-toolchain stable
+          "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Flutter stable
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$env:USERPROFILE\flutter"
+          "$env:USERPROFILE\flutter\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:USERPROFILE\flutter\bin\flutter.bat" config --enable-windows-desktop
+          & "$env:USERPROFILE\flutter\bin\flutter.bat" --version
 
       - name: Install flutter_rust_bridge codegen
+        shell: pwsh
         run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
 
       - name: Generate Windows runner
+        shell: pwsh
         working-directory: app
         run: flutter create --project-name fresh_builder --org com.freshstl --platforms=windows .
 
       - name: Flutter packages
+        shell: pwsh
         working-directory: app
         run: flutter pub get
 
       - name: Generate Flutter/Rust bridge
+        shell: pwsh
         working-directory: app
         run: flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
+        shell: pwsh
         working-directory: app/packages/fresh_builder_viewport_texture
         run: flutter analyze
 
       - name: Test viewport texture package
+        shell: pwsh
         working-directory: app/packages/fresh_builder_viewport_texture
         run: flutter test
 
       - name: Build Windows application
+        shell: pwsh
         working-directory: app
         run: flutter build windows --debug
 
   linux-texture:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
 
       - name: Install Linux desktop dependencies
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get update -y
+          sudo apt-get install -y curl git unzip xz-utils zip clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libglu1-mesa
+
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" config --enable-linux-desktop
+          "$HOME/flutter/bin/flutter" --version
 
       - name: Install flutter_rust_bridge codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
 
       - name: Generate Linux runner
+        shell: bash
         working-directory: app
         run: flutter create --project-name fresh_builder --org com.freshstl --platforms=linux .
 
       - name: Flutter packages
+        shell: bash
         working-directory: app
         run: flutter pub get
 
       - name: Generate Flutter/Rust bridge
+        shell: bash
         working-directory: app
         run: flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
+        shell: bash
         working-directory: app/packages/fresh_builder_viewport_texture
         run: flutter analyze
 
       - name: Test viewport texture package
+        shell: bash
         working-directory: app/packages/fresh_builder_viewport_texture
         run: flutter test
 
       - name: Build Linux application
+        shell: bash
         working-directory: app
         run: flutter build linux --debug
 
   macos-texture:
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" config --enable-macos-desktop
+          "$HOME/flutter/bin/flutter" --version
 
       - name: Install flutter_rust_bridge codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
 
       - name: Generate macOS runner
+        shell: bash
         working-directory: app
         run: flutter create --project-name fresh_builder --org com.freshstl --platforms=macos .
 
       - name: Flutter packages
+        shell: bash
         working-directory: app
         run: flutter pub get
 
       - name: Generate Flutter/Rust bridge
+        shell: bash
         working-directory: app
         run: flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
+        shell: bash
         working-directory: app/packages/fresh_builder_viewport_texture
         run: flutter analyze
 
       - name: Test viewport texture package
+        shell: bash
         working-directory: app/packages/fresh_builder_viewport_texture
         run: flutter test
 
       - name: Build macOS application
+        shell: bash
         working-directory: app
         run: flutter build macos --debug
