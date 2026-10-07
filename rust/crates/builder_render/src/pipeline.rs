@@ -4,6 +4,7 @@ pub struct MeshPipeline {
     pub pipeline: wgpu::RenderPipeline,
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
+    pub joint_palette_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl MeshPipeline {
@@ -20,7 +21,7 @@ impl MeshPipeline {
             mapped_at_creation: false,
         });
 
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Fresh Builder Camera Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -35,16 +36,31 @@ impl MeshPipeline {
         });
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Fresh Builder Camera Bind Group"),
-            layout: &layout,
+            layout: &camera_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: camera_buffer.as_entire_binding(),
             }],
         });
 
+        let joint_palette_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Fresh Builder Joint Palette Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Fresh Builder Mesh Pipeline Layout"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[&camera_layout, &joint_palette_bind_group_layout],
             immediate_size: 0,
         });
 
@@ -92,7 +108,12 @@ impl MeshPipeline {
             cache: None,
         });
 
-        Self { pipeline, camera_buffer, camera_bind_group }
+        Self {
+            pipeline,
+            camera_buffer,
+            camera_bind_group,
+            joint_palette_bind_group_layout,
+        }
     }
 
     pub fn write_camera(
