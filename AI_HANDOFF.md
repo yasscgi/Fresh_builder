@@ -4,7 +4,7 @@ Last audited: 2026-10-07
 Repository: yasscgi/Fresh_builder
 Production branch audited: main
 Production baseline: 9ba6299dd5cb28c35430d7e58ecf4cc4a52d9c49
-Active WIP: PR #17, feat/flutter-rig-session, head ab0c25f19ee5476d2f26c1dbb3dc9c3b38b20b04
+Active WIP: PR #17, feat/flutter-rig-session, head 40c917e268e27de9dabc001afa81cde25dc2ab33
 
 ## Read this first
 
@@ -14,6 +14,22 @@ Do not assume an item is complete because a type or UI button exists. The projec
 3. WGPU render state.
 
 The largest unfinished integration is connecting rig edits all the way through these layers so FK/IK visibly deforms the rendered skinned character.
+
+## Continuation status — 2026-10-07
+
+Completed in active PR #17 after this audit:
+- Fixed the existing Rust scene-validation bug that treated `RenderScene::joint_count()` like a field.
+- Added `builder_render::skeleton_pose` with hierarchy validation, local/global transforms, rest/current pose state and joint-palette generation.
+- Added numerical tests for rest-pose identity, parent/child propagation, four-weight blending, zero-weight fallback, hierarchy cycles and rest-translation-preserving FK deltas.
+- `GpuScene` now retains `SkeletonPose`, a GPU joint-palette storage buffer and a bind group.
+- `mesh.wgsl` now blends up to four joint matrices and skins position + normal before camera projection.
+- Pose changes update the joint palette only; mesh vertex/index buffers are not re-uploaded.
+- Added native FK application path: scene key + bone name + Euler delta -> skeleton joint -> palette upload -> redraw.
+- Added `NativeRigSession::pose_snapshot()` so FK/IK history can remain authoritative across undo/redo and viewport resync.
+- Updated the pipeline for wgpu 30.0.1's optional bind-group-layout entries.
+- CI setup actions were removed to rule out third-party Action policy failures.
+
+CI is still blocked before code execution. Latest PR run `37644775789` (run #335) fails all five jobs with `runner_id: 0` and `steps: []`. No runner is assigned, so this run provides no Rust/Flutter compile result. Do not claim the branch is green until GitHub runner allocation is restored and the validation commands below execute.
 
 ## Current main: confirmed implemented
 
@@ -35,18 +51,20 @@ The largest unfinished integration is connecting rig edits all the way through t
 ### P0 — main.dart compile/scope defect
 _FreshBuilderAppState._preloadBaseCharacter() references _assetCache, _workspace and _nativeViewport, but those fields belong to _BuilderPageState. PR #17 moves the method into the correct State class. Treat this as a blocker in main until fixed/merged.
 
-### P0 — no GPU skinning
-RenderVertex/GpuVertex carries joints and weights, and RenderScene carries a skeleton, but mesh.wgsl ignores joints/weights and transforms input.position directly by camera.view_proj. MeshPipeline only binds the camera uniform. There is no joint palette buffer/bind group and no skin matrix application.
+### P0 — no GPU skinning on main; implementation now exists in active PR
+The audited main baseline still has no skinning. Active PR #17 now retains the skeleton on `GpuScene`, computes current-global × inverse-bind palettes, uploads them through a storage buffer/bind group, and applies four-weight skinning in `mesh.wgsl`.
 
-Consequence: even a correct FK/IK pose state cannot visually deform the character yet.
+This is implemented but not yet compile-validated by GitHub Actions because the current runs fail before runner allocation. Treat it as WIP until CI/local validation executes successfully.
 
-### P0 — rig state is not connected to renderer
-main has Flutter RigMode/UI state, while WGPU has independent scene buffers. There is no production path:
-Flutter rig gesture -> native rig pose -> skeleton local/global transforms -> joint palette -> redraw.
+### P0 — rig state is only partially connected to renderer
+main still has disconnected Flutter RigMode/UI state. Active PR #17 now has the native half of the path:
+native FK Euler -> named skeleton joint -> rest-relative local transform -> global transforms -> joint palette -> redraw.
+
+The missing production link is Flutter `NativeRigController`/FRB-generated API wiring. Undo/redo can expose the authoritative native pose through `pose_snapshot()`, but Flutter does not yet resync/apply that snapshot automatically.
 
 ### P1 — PR #17 is WIP, not production
-PR #17 adds NativeRigSession with explicit IK/FK modes, selected bone, transient FK/IK gesture state, undo/redo and hand state. It also fixes the preload scope bug.
-GitHub reports the PR mergeable at the Git level, but workflow run 37510884929 completed with failure in all five jobs: native-core, flutter-bridge, windows-texture, linux-texture, macos-texture. Logs were not retrievable during this audit. Re-run CI and diagnose the first real error before merging.
+PR #17 now contains NativeRigSession, the preload scope fix, rest-pose GPU skinning, native FK palette updates and rig pose snapshots.
+The latest observed workflow is run `37644775789` (#335). All five jobs fail before a runner is assigned: `runner_id: 0`, `steps: []`. This is currently an infrastructure/account runner-allocation blocker rather than evidence that Rust/Flutter compilation failed. Merge only after a real runner executes all jobs successfully.
 
 ### P1 — FBX is not decoded
 The current native scene path explicitly reports needs_fbx_decoder. GLB/glTF is the working native import route. Do not claim FBX support until a decoder/conversion path is implemented and tested.
@@ -59,10 +77,12 @@ The architecture calls for picking and rig gizmos, but there is not yet a comple
 
 ## PR #17 content
 
-Files changed:
-- app/lib/main.dart
-- app/rust/src/api/mod.rs
-- app/rust/src/api/rig.rs
+The PR has expanded beyond the original three files. Current important changes include:
+- CI workflow diagnostics/setup changes.
+- app/lib/main.dart preload scope fix.
+- app/rust/src/api/rig.rs NativeRigSession + authoritative pose snapshot.
+- app/rust/src/api/builder.rs native FK scene-application/reset methods.
+- builder_render skeleton_pose, gpu_scene, pipeline, viewport and mesh shader skinning changes.
 
 NativeRigSession provides:
 - BridgeRigMode: None / Ik / Fk
@@ -74,39 +94,34 @@ NativeRigSession provides:
 - undo/redo
 - PoseState export
 
-Important: this is state/history infrastructure. It does NOT implement GPU skinning or visible skeleton deformation.
+Important: NativeRigSession is still the state/history authority. GPU skinning and a native FK deformation path now exist in the same PR, but Flutter has not yet connected rig gestures/undo/redo to that path, and IK still outputs points rather than joint rotations.
 
 ## Next implementation order
 
-1. Make PR #17 green.
-   - Re-run CI.
-   - Fix Rust/FRB codegen/analyzer/test errors.
-   - Confirm all desktop jobs pass.
+1. Unblock executable CI for PR #17.
+   - GitHub currently creates jobs but assigns no runner (`runner_id: 0`, zero steps).
+   - Once runner allocation works, run Rust workspace tests, FRB codegen, Flutter analyze/tests and desktop builds.
+   - Fix any real compile/test errors revealed by those runs.
    - Merge only after green.
 
-2. Make NativeRigSession the rig source of truth.
+2. Finish making NativeRigSession the rig source of truth in Flutter.
    - Generate FRB Dart API for api/rig.rs.
    - Add NativeRigController in Flutter.
    - Remove duplicated/divergent local rig state where possible.
    - Wire IK/FK/Open/Close and undo/redo.
    - During pose gesture call workspace.beginPoseGesture(); commit/cancel must unlock navigation.
 
-3. Add rest-pose skinning to WGPU before interactive FK.
-   - Preserve skeleton on GPU scene, not only joint_count.
-   - Compute global bind/current transforms.
-   - Compute skin matrices: current_global * inverse_bind.
-   - Add joint palette GPU buffer and bind group.
-   - Update mesh.wgsl to blend up to 4 joint matrices by weights.
-   - Correctly transform normals.
-   - Add tests for identity/rest pose.
+3. Validate the implemented rest-pose WGPU skinning.
+   - The skeleton pose, palette buffer, bind group, shader blending and numerical tests are now in PR #17.
+   - Validate with a known tiny skinned GLB once executable CI/local Rust tooling is available.
+   - Confirm rest pose renders identically and normal transformation is acceptable for the rig's rigid joint transforms.
 
-4. Implement FK end-to-end.
-   - Map selected semantic/source bone to skeleton joint index.
-   - Convert gizmo rotation to a local joint delta.
-   - Recompute descendants/global matrices.
-   - Upload palette only; do not re-upload mesh.
-   - Render on every coalesced pose update.
-   - Commit one history entry on pointer release.
+4. Finish FK end-to-end in Flutter.
+   - Native bone-name -> joint-index -> rest-relative Euler delta -> palette -> redraw exists.
+   - Generate FRB Dart bindings.
+   - Add NativeRigController and connect selected-bone/gizmo gestures.
+   - On undo/redo, use NativeRigSession pose_snapshot() to reset/reapply viewport pose.
+   - Coalesce drag updates and commit one history entry on pointer release.
 
 5. Implement IK end-to-end.
    - Resolve Rig V3 chain.
