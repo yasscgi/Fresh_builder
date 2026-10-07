@@ -76,6 +76,24 @@ impl SkeletonPose {
         Ok(())
     }
 
+    pub fn set_local_delta_matrix(
+        &mut self,
+        joint_index: usize,
+        delta: Mat4,
+    ) -> Result<(), String> {
+        let rest = self
+            .rest_local
+            .get(joint_index)
+            .copied()
+            .ok_or_else(|| format!("Joint index {joint_index} is out of range"))?;
+        let slot = self
+            .current_local
+            .get_mut(joint_index)
+            .ok_or_else(|| format!("Joint index {joint_index} is out of range"))?;
+        *slot = mat4_mul(rest, delta);
+        Ok(())
+    }
+
     pub fn reset_to_rest(&mut self) {
         self.current_local.clone_from(&self.rest_local);
     }
@@ -115,6 +133,33 @@ pub fn mat4_mul(a: Mat4, b: Mat4) -> Mat4 {
         }
     }
     out
+}
+
+pub fn euler_xyz_matrix(x: f32, y: f32, z: f32) -> Mat4 {
+    let (sx, cx) = x.sin_cos();
+    let (sy, cy) = y.sin_cos();
+    let (sz, cz) = z.sin_cos();
+
+    let rx = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, cx, sx, 0.0],
+        [0.0, -sx, cx, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+    let ry = [
+        [cy, 0.0, -sy, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [sy, 0.0, cy, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+    let rz = [
+        [cz, sz, 0.0, 0.0],
+        [-sz, cz, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+
+    mat4_mul(rz, mat4_mul(ry, rx))
 }
 
 pub fn transform_point(matrix: Mat4, point: [f32; 3]) -> [f32; 3] {
@@ -330,6 +375,34 @@ mod tests {
             blend_skin_matrices(&palette, [0, 0, 0, 0], [0.0; 4]),
             identity_matrix(),
         );
+    }
+
+    #[test]
+    fn fk_delta_preserves_rest_translation() {
+        let skeleton = RenderSkeleton {
+            joints: vec![RenderJoint {
+                name: "arm".into(),
+                parent: None,
+                inverse_bind_matrix: identity_matrix(),
+                local_matrix: translation(2.0, 0.0, 0.0),
+            }],
+        };
+
+        let mut pose = SkeletonPose::from_skeleton(&skeleton).unwrap();
+        pose.set_local_delta_matrix(
+            0,
+            euler_xyz_matrix(0.0, 0.0, core::f32::consts::FRAC_PI_2),
+        )
+        .unwrap();
+
+        let global = pose.global_matrices().unwrap()[0];
+        let origin = transform_point(global, [0.0, 0.0, 0.0]);
+        let x_axis = transform_point(global, [1.0, 0.0, 0.0]);
+
+        assert!((origin[0] - 2.0).abs() < 1.0e-5);
+        assert!(origin[1].abs() < 1.0e-5);
+        assert!((x_axis[0] - 2.0).abs() < 1.0e-5);
+        assert!((x_axis[1] - 1.0).abs() < 1.0e-5);
     }
 
     #[test]
