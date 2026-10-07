@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::{identity_matrix, GpuContext, Mat4, RenderScene, SkeletonPose};
+use crate::{euler_xyz_matrix, identity_matrix, GpuContext, Mat4, RenderScene, SkeletonPose};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -41,6 +41,22 @@ impl GpuScene {
         matrix: Mat4,
     ) -> Result<(), String> {
         self.skeleton_pose.set_local_matrix(joint_index, matrix)?;
+        self.upload_current_palette(queue)
+    }
+
+    pub fn set_joint_local_euler_xyz(
+        &mut self,
+        queue: &wgpu::Queue,
+        joint_index: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> Result<(), String> {
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            return Err("FK Euler values must be finite".to_owned());
+        }
+        self.skeleton_pose
+            .set_local_delta_matrix(joint_index, euler_xyz_matrix(x, y, z))?;
         self.upload_current_palette(queue)
     }
 
