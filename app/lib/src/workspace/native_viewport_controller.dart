@@ -255,6 +255,48 @@ class NativeViewportController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setSceneFkRotation({
+    required String sceneKey,
+    required String bone,
+    required double x,
+    required double y,
+    required double z,
+  }) async {
+    final session = _session;
+    if (session == null || _error != null) return;
+
+    try {
+      await session.setSceneFkRotation(
+        sceneKey: sceneKey,
+        bone: bone,
+        x: x,
+        y: y,
+        z: z,
+      );
+      await _markTextureFrame();
+      _sceneError = null;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> resetScenePose(String sceneKey) async {
+    final session = _session;
+    if (session == null || _error != null) return;
+
+    try {
+      await session.resetScenePose(sceneKey: sceneKey);
+      await _markTextureFrame();
+      _sceneError = null;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> setViewPreset(String preset) async {
     final session = _session;
     if (session == null || _error != null) return;
