@@ -109,6 +109,17 @@ impl ViewportRenderer {
         scene.set_joint_local_matrix(&self.context.queue, joint_index, matrix)
     }
 
+    pub fn set_scene_joint_euler_xyz(
+        &self,
+        scene: &mut GpuScene,
+        joint_index: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> Result<(), String> {
+        scene.set_joint_local_euler_xyz(&self.context.queue, joint_index, x, y, z)
+    }
+
     pub fn reset_scene_pose(&self, scene: &mut GpuScene) -> Result<(), String> {
         scene.reset_pose(&self.context.queue)
     }
