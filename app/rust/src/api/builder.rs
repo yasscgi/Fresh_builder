@@ -418,6 +418,57 @@ impl NativeViewportSession {
         Ok(inner.scenes.len() as u32)
     }
 
+    pub fn set_scene_fk_rotation(
+        &self,
+        scene_key: String,
+        bone: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> Result<(), String> {
+        if bone.trim().is_empty() {
+            return Err("FK rotation requires a non-empty bone name".to_owned());
+        }
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            return Err("FK rotation requires finite Euler values".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+            let joint_index = scene
+                .joint_index(&bone)
+                .ok_or_else(|| format!("Bone {bone} was not found in scene {scene_key}"))?;
+            renderer.set_scene_joint_euler_xyz(scene, joint_index, x, y, z)?;
+        }
+        inner.render_frame();
+        Ok(())
+    }
+
+    pub fn reset_scene_pose(&self, scene_key: String) -> Result<(), String> {
+        let mut inner = self.lock_inner()?;
+        {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+            renderer.reset_scene_pose(scene)?;
+        }
+        inner.render_frame();
+        Ok(())
+    }
+
     pub fn render_frame(&self) -> Result<(), String> {
         let inner = self.lock_inner()?;
         inner.render_frame();
