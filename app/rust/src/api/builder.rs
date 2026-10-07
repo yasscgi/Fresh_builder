@@ -397,6 +397,15 @@ impl NativeViewportSession {
         }
     }
 
+    pub fn scene_joint_names(&self, scene_key: String) -> Result<Vec<String>, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+        Ok(scene.joint_names().to_vec())
+    }
+
     pub fn remove_scene(&self, scene_key: String) -> Result<bool, String> {
         let mut inner = self.lock_inner()?;
         let removed = inner.scenes.remove(&scene_key).is_some();
