@@ -48,6 +48,7 @@ impl Default for RigPose {
 pub struct BridgeRigState {
     pub mode: BridgeRigMode,
     pub selected_bone: Option<String>,
+    pub selected_fk_rotation: Option<BridgeEuler>,
     pub hand_open: f32,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -238,9 +239,16 @@ impl NativeRigSession {
 
 fn state_from_history(history: &BuilderHistory<RigPose>, gesture_active: bool) -> BridgeRigState {
     let pose = history.current();
+    let selected_fk_rotation = pose
+        .selected_bone
+        .as_ref()
+        .and_then(|bone| pose.fk.get(bone))
+        .copied();
+
     BridgeRigState {
         mode: pose.mode,
         selected_bone: pose.selected_bone.clone(),
+        selected_fk_rotation,
         hand_open: pose.hand_open,
         can_undo: history.can_undo(),
         can_redo: history.can_redo(),
@@ -275,6 +283,20 @@ mod tests {
 
         let ik = rig.update_ik_target("LeftFoot".into(), 0.0, 0.0, 1.0).unwrap();
         assert_eq!(ik.mode, BridgeRigMode::Ik);
+    }
+
+    #[test]
+    fn bridge_state_exposes_selected_fk_rotation() {
+        let rig = NativeRigSession::create();
+        rig.select_bone(Some("Spine".into())).unwrap();
+        rig.update_fk_rotation("Spine".into(), 0.1, 0.2, 0.3)
+            .unwrap();
+
+        let state = rig.state().unwrap();
+        let rotation = state.selected_fk_rotation.expect("selected FK rotation");
+        assert!((rotation.x - 0.1).abs() < 1.0e-6);
+        assert!((rotation.y - 0.2).abs() < 1.0e-6);
+        assert!((rotation.z - 0.3).abs() < 1.0e-6);
     }
 
     #[test]
