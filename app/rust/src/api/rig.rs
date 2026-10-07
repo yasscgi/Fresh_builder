@@ -96,6 +96,19 @@ impl NativeRigSession {
         Ok(state_from_history(&history, gesture_active))
     }
 
+    pub fn reset(&self) -> Result<BridgeRigState, String> {
+        let mut history = self
+            .history
+            .lock()
+            .map_err(|_| "Rig history lock was poisoned")?;
+        *history = BuilderHistory::new(RigPose::default());
+        *self
+            .gesture_active
+            .lock()
+            .map_err(|_| "Rig gesture lock was poisoned")? = false;
+        Ok(state_from_history(&history, false))
+    }
+
     pub fn pose_snapshot(&self) -> Result<BridgeRigPoseSnapshot, String> {
         let history = self
             .history
@@ -283,6 +296,23 @@ mod tests {
 
         let ik = rig.update_ik_target("LeftFoot".into(), 0.0, 0.0, 1.0).unwrap();
         assert_eq!(ik.mode, BridgeRigMode::Ik);
+    }
+
+    #[test]
+    fn reset_clears_pose_history_and_selection() {
+        let rig = NativeRigSession::create();
+        rig.update_fk_rotation("Spine".into(), 0.2, 0.0, 0.0)
+            .unwrap();
+        rig.commit_gesture().unwrap();
+        rig.set_hand_open(false).unwrap();
+
+        let state = rig.reset().unwrap();
+        assert_eq!(state.mode, BridgeRigMode::None);
+        assert!(state.selected_bone.is_none());
+        assert!(state.selected_fk_rotation.is_none());
+        assert!(state.hand_open > 0.5);
+        assert!(!state.can_undo);
+        assert!(!state.can_redo);
     }
 
     #[test]
