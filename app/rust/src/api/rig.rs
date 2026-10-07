@@ -54,6 +54,27 @@ pub struct BridgeRigState {
     pub gesture_active: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct BridgeFkRotation {
+    pub bone: String,
+    pub rotation: BridgeEuler,
+}
+
+#[derive(Clone, Debug)]
+pub struct BridgeIkTarget {
+    pub effector: String,
+    pub target: BridgePoint3,
+}
+
+#[derive(Clone, Debug)]
+pub struct BridgeRigPoseSnapshot {
+    pub mode: BridgeRigMode,
+    pub selected_bone: Option<String>,
+    pub fk: Vec<BridgeFkRotation>,
+    pub ik: Vec<BridgeIkTarget>,
+    pub hand_open: f32,
+}
+
 #[frb(opaque)]
 pub struct NativeRigSession {
     history: Mutex<BuilderHistory<RigPose>>,
@@ -72,6 +93,36 @@ impl NativeRigSession {
         let history = self.history.lock().map_err(|_| "Rig history lock was poisoned")?;
         let gesture_active = *self.gesture_active.lock().map_err(|_| "Rig gesture lock was poisoned")?;
         Ok(state_from_history(&history, gesture_active))
+    }
+
+    pub fn pose_snapshot(&self) -> Result<BridgeRigPoseSnapshot, String> {
+        let history = self
+            .history
+            .lock()
+            .map_err(|_| "Rig history lock was poisoned")?;
+        let pose = history.current();
+
+        Ok(BridgeRigPoseSnapshot {
+            mode: pose.mode,
+            selected_bone: pose.selected_bone.clone(),
+            fk: pose
+                .fk
+                .iter()
+                .map(|(bone, rotation)| BridgeFkRotation {
+                    bone: bone.clone(),
+                    rotation: *rotation,
+                })
+                .collect(),
+            ik: pose
+                .ik
+                .iter()
+                .map(|(effector, target)| BridgeIkTarget {
+                    effector: effector.clone(),
+                    target: *target,
+                })
+                .collect(),
+            hand_open: pose.hand_open,
+        })
     }
 
     pub fn set_mode(&self, mode: BridgeRigMode) -> Result<BridgeRigState, String> {
@@ -224,6 +275,25 @@ mod tests {
 
         let ik = rig.update_ik_target("LeftFoot".into(), 0.0, 0.0, 1.0).unwrap();
         assert_eq!(ik.mode, BridgeRigMode::Ik);
+    }
+
+    #[test]
+    fn pose_snapshot_tracks_fk_undo_and_redo() {
+        let rig = NativeRigSession::create();
+        rig.update_fk_rotation("LeftArm".into(), 0.25, 0.0, 0.0)
+            .unwrap();
+        rig.commit_gesture().unwrap();
+
+        let snapshot = rig.pose_snapshot().unwrap();
+        assert_eq!(snapshot.fk.len(), 1);
+        assert_eq!(snapshot.fk[0].bone, "LeftArm");
+        assert!((snapshot.fk[0].rotation.x - 0.25).abs() < 1.0e-6);
+
+        rig.undo().unwrap();
+        assert!(rig.pose_snapshot().unwrap().fk.is_empty());
+
+        rig.redo().unwrap();
+        assert_eq!(rig.pose_snapshot().unwrap().fk.len(), 1);
     }
 
     #[test]
