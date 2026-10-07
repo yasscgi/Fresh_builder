@@ -16,6 +16,7 @@ class NativeViewportController extends ChangeNotifier {
   String? _sceneError;
   String? _error;
   final Map<String, ({String path, double metersPerUnit})> _pendingScenes = {};
+  final Set<String> _loadedSceneKeys = <String>{};
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -34,6 +35,7 @@ class NativeViewportController extends ChangeNotifier {
   int? get textureId => _textureId;
   String? get textureError => _textureError;
   bool get textureAvailable => _textureId != null;
+  bool hasLoadedScene(String sceneKey) => _loadedSceneKeys.contains(sceneKey);
 
   Future<void> ensureInitialized({
     required double logicalWidth,
@@ -216,6 +218,11 @@ class NativeViewportController extends ChangeNotifier {
         path: pending.path,
         metersPerUnit: pending.metersPerUnit,
       );
+      if (_sceneStatus?.loadedToGpu == true) {
+        _loadedSceneKeys.add(sceneKey);
+      } else {
+        _loadedSceneKeys.remove(sceneKey);
+      }
       _sceneError = null;
       await _markTextureFrame();
       notifyListeners();
@@ -227,6 +234,7 @@ class NativeViewportController extends ChangeNotifier {
 
   Future<void> removeScene(String sceneKey) async {
     _pendingScenes.remove(sceneKey);
+    _loadedSceneKeys.remove(sceneKey);
     final session = _session;
     if (session != null) {
       try {
@@ -241,6 +249,7 @@ class NativeViewportController extends ChangeNotifier {
 
   Future<void> clearScenes() async {
     _pendingScenes.clear();
+    _loadedSceneKeys.clear();
     _sceneStatus = null;
     _sceneError = null;
     final session = _session;
