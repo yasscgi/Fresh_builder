@@ -92,6 +92,7 @@ class BuilderPage extends StatefulWidget {
 }
 
 class _BuilderPageState extends State<BuilderPage> {
+  static const _baseCharacterSceneKey = 'role:base_character';
   int _selectedCategory = 0;
   BuilderProductSummary? _selectedProduct;
   BuilderCloudData? _cloudData;
@@ -149,7 +150,7 @@ class _BuilderPageState extends State<BuilderPage> {
       _workspace.setBusy(true, status: 'Loading base character');
       final local = await cache.getOrDownload(choice);
       await _nativeViewport.upsertLocalScene(
-        sceneKey: 'role:base_character',
+        sceneKey: _baseCharacterSceneKey,
         path: local.file.path,
         metersPerUnit: _metersPerUnit(choice),
       );
@@ -170,7 +171,7 @@ class _BuilderPageState extends State<BuilderPage> {
   }
 
 
-  Future<void> _setBridgeRigMode(BridgeRigMode mode) async {
+  Future<void> _setRigMode(BridgeRigMode mode) async {
     await _nativeRig.setMode(mode);
     if (!mounted) return;
     _workspace.setRigVisible(_nativeRig.mode != BridgeRigMode.none);
@@ -178,6 +179,28 @@ class _BuilderPageState extends State<BuilderPage> {
 
   Future<void> _setHandOpen(bool open) async {
     await _nativeRig.setHandOpen(open);
+  }
+
+  Future<void> _undoRig() async {
+    if (!_nativeRig.canUndo ||
+        !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+      return;
+    }
+    await _nativeRig.undo(
+      viewport: _nativeViewport,
+      sceneKey: _baseCharacterSceneKey,
+    );
+  }
+
+  Future<void> _redoRig() async {
+    if (!_nativeRig.canRedo ||
+        !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+      return;
+    }
+    await _nativeRig.redo(
+      viewport: _nativeViewport,
+      sceneKey: _baseCharacterSceneKey,
+    );
   }
 
   @override
@@ -435,6 +458,9 @@ class _BuilderPageState extends State<BuilderPage> {
                   cloudReady: widget.cloudReady,
                   selectedProduct: _selectedProduct,
                   onProductSelected: _openProduct,
+                  rigController: _nativeRig,
+                  onUndo: () => unawaited(_undoRig()),
+                  onRedo: () => unawaited(_redoRig()),
                 ),
                 Expanded(
                   child: compact
@@ -520,14 +546,14 @@ class _BuilderPageState extends State<BuilderPage> {
                         fkActive: _nativeRig.mode == BridgeRigMode.fk,
                         handOpen: _nativeRig.handOpen,
                         onIk: () => unawaited(
-                          _setBridgeRigMode(
+                          _setRigMode(
                             _nativeRig.mode == BridgeRigMode.ik
                                 ? BridgeRigMode.none
                                 : BridgeRigMode.ik,
                           ),
                         ),
                         onFk: () => unawaited(
-                          _setBridgeRigMode(
+                          _setRigMode(
                             _nativeRig.mode == BridgeRigMode.fk
                                 ? BridgeRigMode.none
                                 : BridgeRigMode.fk,
@@ -570,7 +596,7 @@ class _BuilderPageState extends State<BuilderPage> {
             width: 332,
             child: _RigPanel(
               rigController: _nativeRig,
-              onModeChanged: (mode) => unawaited(_setBridgeRigMode(mode)),
+              onModeChanged: (mode) => unawaited(_setRigMode(mode)),
               workspace: _workspace,
             ),
           ),
@@ -634,14 +660,14 @@ class _BuilderPageState extends State<BuilderPage> {
               fkActive: _nativeRig.mode == BridgeRigMode.fk,
               handOpen: _nativeRig.handOpen,
               onIk: () => unawaited(
-                          _setBridgeRigMode(
+                          _setRigMode(
                             _nativeRig.mode == BridgeRigMode.ik
                                 ? BridgeRigMode.none
                                 : BridgeRigMode.ik,
                           ),
                         ),
               onFk: () => unawaited(
-                          _setBridgeRigMode(
+                          _setRigMode(
                             _nativeRig.mode == BridgeRigMode.fk
                                 ? BridgeRigMode.none
                                 : BridgeRigMode.fk,
@@ -698,18 +724,26 @@ class _TopBar extends StatelessWidget {
     required this.cloudReady,
     required this.selectedProduct,
     required this.onProductSelected,
+    required this.rigController,
+    required this.onUndo,
+    required this.onRedo,
   });
 
   final VoidCallback onToggleTheme;
   final bool cloudReady;
   final BuilderProductSummary? selectedProduct;
   final ValueChanged<BuilderProductSummary> onProductSelected;
+  final NativeRigController rigController;
+  final VoidCallback onUndo;
+  final VoidCallback onRedo;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return LayoutBuilder(
-      builder: (context, constraints) {
+    return ListenableBuilder(
+      listenable: rigController,
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
         final desktop = constraints.maxWidth >= 1120;
         final height = desktop ? 66.0 : 58.0;
 
@@ -840,12 +874,12 @@ class _TopBar extends StatelessWidget {
                   _HeaderIconButton(
                     icon: Icons.undo_rounded,
                     tooltip: 'Undo',
-                    onPressed: () {},
+                    onPressed: rigController.canUndo ? onUndo : null,
                   ),
                   _HeaderIconButton(
                     icon: Icons.redo_rounded,
                     tooltip: 'Redo',
-                    onPressed: () {},
+                    onPressed: rigController.canRedo ? onRedo : null,
                   ),
                   _HeaderIconButton(
                     icon: Icons.brightness_6_rounded,
@@ -864,7 +898,8 @@ class _TopBar extends StatelessWidget {
             ],
           ),
         );
-      },
+        },
+      ),
     );
   }
 }
@@ -932,7 +967,7 @@ class _HeaderIconButton extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -940,10 +975,13 @@ class _HeaderIconButton extends StatelessWidget {
       padding: const EdgeInsets.only(right: 5),
       child: Tooltip(
         message: tooltip,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onPressed,
-          child: Container(
+        child: AnimatedOpacity(
+          opacity: onPressed == null ? 0.38 : 1,
+          duration: const Duration(milliseconds: 120),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onPressed,
+            child: Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
@@ -951,7 +989,8 @@ class _HeaderIconButton extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Theme.of(context).dividerColor),
             ),
-            child: Icon(icon, size: 17),
+              child: Icon(icon, size: 17),
+            ),
           ),
         ),
       ),
