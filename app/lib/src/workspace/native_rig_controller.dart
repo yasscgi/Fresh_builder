@@ -20,6 +20,7 @@ class NativeRigController extends ChangeNotifier {
   bool get canRedo => _state?.canRedo ?? false;
   bool get gestureActive => _state?.gestureActive ?? false;
   String? get selectedBone => _state?.selectedBone;
+  BridgeEuler? get selectedFkRotation => _state?.selectedFkRotation;
   BridgeRigPoseSnapshot? get snapshot => _snapshot;
   String? get error => _error;
   bool get ready => _session != null && _error == null;
@@ -42,6 +43,20 @@ class NativeRigController extends ChangeNotifier {
     } finally {
       _initialization = null;
       notifyListeners();
+    }
+  }
+
+  Future<void> reset() async {
+    _pendingFk = null;
+    await _fkFlush;
+    final session = await _requireSession();
+    try {
+      _state = await session.reset();
+      _snapshot = await session.poseSnapshot();
+      _error = null;
+      notifyListeners();
+    } catch (error) {
+      _setError(error);
     }
   }
 
@@ -142,7 +157,7 @@ class NativeRigController extends ChangeNotifier {
     try {
       _state = await session.cancelGesture();
       _snapshot = await session.poseSnapshot();
-      await _syncViewport(viewport, sceneKey);
+      await syncViewport(viewport, sceneKey);
       _error = null;
       notifyListeners();
     } catch (error) {
@@ -160,7 +175,7 @@ class NativeRigController extends ChangeNotifier {
     try {
       _state = await session.undo();
       _snapshot = await session.poseSnapshot();
-      await _syncViewport(viewport, sceneKey);
+      await syncViewport(viewport, sceneKey);
       _error = null;
       notifyListeners();
     } catch (error) {
@@ -178,7 +193,7 @@ class NativeRigController extends ChangeNotifier {
     try {
       _state = await session.redo();
       _snapshot = await session.poseSnapshot();
-      await _syncViewport(viewport, sceneKey);
+      await syncViewport(viewport, sceneKey);
       _error = null;
       notifyListeners();
     } catch (error) {
@@ -243,7 +258,7 @@ class NativeRigController extends ChangeNotifier {
     }
   }
 
-  Future<void> _syncViewport(
+  Future<void> syncViewport(
     NativeViewportController viewport,
     String sceneKey,
   ) async {
