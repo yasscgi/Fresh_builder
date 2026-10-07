@@ -63,6 +63,10 @@ impl SkeletonPose {
         self.names.iter().position(|candidate| candidate == name)
     }
 
+    pub fn joint_names(&self) -> &[String] {
+        &self.names
+    }
+
     pub fn local_matrix(&self, joint_index: usize) -> Option<Mat4> {
         self.current_local.get(joint_index).copied()
     }
