@@ -148,6 +148,13 @@ pub enum BridgeViewPreset {
     Bottom,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeSceneTransform {
+    pub translation: BridgeVec3,
+    pub rotation: BridgeVec3,
+    pub scale: f32,
+}
+
 #[frb(opaque)]
 pub struct NativeViewportSession {
     inner: Mutex<NativeViewportSessionInner>,
@@ -577,6 +584,45 @@ impl NativeViewportSession {
     pub fn loaded_scene_count(&self) -> Result<u32, String> {
         let inner = self.lock_inner()?;
         Ok(inner.scenes.len() as u32)
+    }
+
+    pub fn set_scene_model_transform(
+        &self,
+        scene_key: String,
+        transform: BridgeSceneTransform,
+    ) -> Result<(), String> {
+        if !transform.scale.is_finite() || transform.scale <= 0.0 {
+            return Err("Scene scale must be finite and positive".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+
+            renderer.set_scene_model_transform(
+                scene,
+                [
+                    transform.translation.x,
+                    transform.translation.y,
+                    transform.translation.z,
+                ],
+                [
+                    transform.rotation.x,
+                    transform.rotation.y,
+                    transform.rotation.z,
+                ],
+                transform.scale,
+            )?;
+        }
+        inner.render_frame();
+        Ok(())
     }
 
     pub fn set_scene_fk_rotation(
