@@ -30,6 +30,8 @@ public final class FreshBuilderViewportTexturePlugin
   private TextureRegistry.SurfaceTextureEntry textureEntry;
   private Surface surface;
   private Bitmap bitmap;
+  private int[] pixels;
+  private long generation = -1L;
 
   private static native boolean nativeSetCapture(boolean enabled);
   private static native byte[] nativeReadFrame();
@@ -111,6 +113,8 @@ public final class FreshBuilderViewportTexturePlugin
       bitmap.recycle();
       bitmap = null;
     }
+    pixels = null;
+    generation = -1L;
   }
 
   private void drawLatestFrame() {
@@ -119,29 +123,42 @@ public final class FreshBuilderViewportTexturePlugin
     }
 
     byte[] packed = nativeReadFrame();
-    if (packed == null || packed.length < 8) {
+    if (packed == null || packed.length < 16) {
       return;
     }
 
-    ByteBuffer header = ByteBuffer.wrap(packed, 0, 8).order(ByteOrder.LITTLE_ENDIAN);
+    ByteBuffer header =
+        ByteBuffer.wrap(packed, 0, 16).order(ByteOrder.LITTLE_ENDIAN);
     int width = header.getInt();
     int height = header.getInt();
-    if (width <= 0 || height <= 0 || packed.length != 8 + width * height * 4) {
+    long frameGeneration = header.getLong();
+    if (frameGeneration == generation) {
+      return;
+    }
+    if (width <= 0 ||
+        height <= 0 ||
+        packed.length != 16 + width * height * 4) {
       return;
     }
 
     SurfaceTexture surfaceTexture = textureEntry.surfaceTexture();
     surfaceTexture.setDefaultBufferSize(width, height);
 
-    if (bitmap == null || bitmap.getWidth() != width || bitmap.getHeight() != height) {
+    if (bitmap == null ||
+        bitmap.getWidth() != width ||
+        bitmap.getHeight() != height) {
       if (bitmap != null) {
         bitmap.recycle();
       }
       bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+      pixels = new int[width * height];
     }
 
-    int[] pixels = new int[width * height];
-    int src = 8;
+    if (pixels == null || pixels.length != width * height) {
+      pixels = new int[width * height];
+    }
+
+    int src = 16;
     for (int i = 0; i < pixels.length; i++) {
       int r = packed[src] & 0xff;
       int g = packed[src + 1] & 0xff;
@@ -151,6 +168,7 @@ public final class FreshBuilderViewportTexturePlugin
       src += 4;
     }
     bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+    generation = frameGeneration;
 
     Canvas canvas = null;
     try {
