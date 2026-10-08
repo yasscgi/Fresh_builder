@@ -96,8 +96,26 @@ impl ViewportRenderer {
     }
 
     pub fn upload_scene(&self, scene: &RenderScene) -> Result<GpuScene, String> {
-        self.context
-            .upload_scene(scene, &self.pipeline.joint_palette_bind_group_layout)
+        self.context.upload_scene(
+            scene,
+            &self.pipeline.joint_palette_bind_group_layout,
+            &self.pipeline.model_bind_group_layout,
+        )
+    }
+
+    pub fn set_scene_model_transform(
+        &self,
+        scene: &mut GpuScene,
+        translation: [f32; 3],
+        rotation_xyz: [f32; 3],
+        scale: f32,
+    ) -> Result<(), String> {
+        scene.set_model_transform(
+            &self.context.queue,
+            translation,
+            rotation_xyz,
+            scale,
+        )
     }
 
     pub fn apply_scene_two_bone_solution(
@@ -204,6 +222,7 @@ impl ViewportRenderer {
 
             for scene in scenes {
                 pass.set_bind_group(1, &scene.joint_palette_bind_group, &[]);
+                pass.set_bind_group(2, &scene.model_bind_group, &[]);
                 for mesh in &scene.meshes {
                     pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     pass.set_index_buffer(
