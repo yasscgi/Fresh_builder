@@ -1391,7 +1391,7 @@ class _FkAxisSlider extends StatelessWidget {
         SizedBox(
           width: 42,
           child: Text(
-            '\${(value * 180 / math.pi).round()}°',
+            '${(value * 180 / math.pi).round()}°',
             textAlign: TextAlign.right,
             style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
           ),
