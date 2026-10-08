@@ -180,6 +180,12 @@ class _BuilderPageState extends State<BuilderPage> {
 
   Future<void> _setHandOpen(bool open) async {
     await _nativeRig.setHandOpen(open);
+    if (_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+      await _nativeViewport.setSceneHandOpen(
+        sceneKey: _baseCharacterSceneKey,
+        openAmount: open ? 1.0 : 0.0,
+      );
+    }
   }
 
   Future<void> _selectFkBone(String? bone) async {
@@ -753,6 +759,8 @@ class _BuilderPageState extends State<BuilderPage> {
                 jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
               ),
               boneConstraints: resolveRigBoneConstraints(data: _cloudData),
+              onOpenHand: () => unawaited(_setHandOpen(true)),
+              onCloseHand: () => unawaited(_setHandOpen(false)),
             ),
           ),
       ],
@@ -1167,6 +1175,8 @@ class _RigPanel extends StatelessWidget {
     required this.sceneKey,
     required this.ikChains,
     required this.boneConstraints,
+    required this.onOpenHand,
+    required this.onCloseHand,
   });
 
   final NativeRigController rigController;
@@ -1182,6 +1192,8 @@ class _RigPanel extends StatelessWidget {
   final String sceneKey;
   final List<IkChainBinding> ikChains;
   final Map<String, RigBoneConstraintBinding> boneConstraints;
+  final VoidCallback onOpenHand;
+  final VoidCallback onCloseHand;
 
   @override
   Widget build(BuildContext context) {
@@ -1371,7 +1383,7 @@ class _RigPanel extends StatelessWidget {
                           child: _HandStateButton(
                             label: 'Open',
                             selected: rigController.handOpen,
-                            onTap: () => unawaited(rigController.setHandOpen(true)),
+                            onTap: onOpenHand,
                           ),
                         ),
                         const SizedBox(width: 7),
@@ -1379,7 +1391,7 @@ class _RigPanel extends StatelessWidget {
                           child: _HandStateButton(
                             label: 'Close',
                             selected: !rigController.handOpen,
-                            onTap: () => unawaited(rigController.setHandOpen(false)),
+                            onTap: onCloseHand,
                           ),
                         ),
                       ],
