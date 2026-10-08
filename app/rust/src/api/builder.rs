@@ -90,6 +90,15 @@ pub struct BridgeViewportSize {
 }
 
 #[derive(Clone, Debug)]
+pub struct BridgeJointScreenPoint {
+    pub bone: String,
+    pub x: f32,
+    pub y: f32,
+    pub depth: f32,
+    pub visible: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct LocalAssetInfo {
     pub path: String,
     pub format: String,
@@ -427,6 +436,59 @@ impl NativeViewportSession {
         })
     }
 
+    pub fn scene_joint_screen_positions(
+        &self,
+        scene_key: String,
+    ) -> Result<Vec<BridgeJointScreenPoint>, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+
+        let (width, height) = inner.renderer.size();
+        let aspect = width as f32 / height.max(1) as f32;
+        let view_projection = inner.camera.view_projection(aspect);
+
+        let mut points = Vec::with_capacity(scene.joint_names().len());
+        for (index, bone) in scene.joint_names().iter().enumerate() {
+            let world = scene.joint_world_position(index)?;
+            let clip = project_clip(view_projection, world);
+            let w = clip[3];
+            let finite = clip.iter().all(|value| value.is_finite());
+            let in_front = finite && w > 1.0e-6;
+
+            if !in_front {
+                points.push(BridgeJointScreenPoint {
+                    bone: bone.clone(),
+                    x: 0.0,
+                    y: 0.0,
+                    depth: 1.0,
+                    visible: false,
+                });
+                continue;
+            }
+
+            let ndc_x = clip[0] / w;
+            let ndc_y = clip[1] / w;
+            let ndc_z = clip[2] / w;
+            let visible =
+                ndc_x >= -1.05 && ndc_x <= 1.05 &&
+                ndc_y >= -1.05 && ndc_y <= 1.05 &&
+                ndc_z >= 0.0 && ndc_z <= 1.0;
+
+            points.push(BridgeJointScreenPoint {
+                bone: bone.clone(),
+                x: (ndc_x * 0.5 + 0.5) * width as f32,
+                y: (1.0 - (ndc_y * 0.5 + 0.5)) * height as f32,
+                depth: ndc_z,
+                visible,
+            });
+        }
+
+        Ok(points)
+    }
+
     pub fn remove_scene(&self, scene_key: String) -> Result<bool, String> {
         let mut inner = self.lock_inner()?;
         let removed = inner.scenes.remove(&scene_key).is_some();
@@ -650,6 +712,29 @@ impl NativeViewportSession {
     }
 }
 
+
+fn project_clip(matrix: [[f32; 4]; 4], point: [f32; 3]) -> [f32; 4] {
+    let vector = [point[0], point[1], point[2], 1.0];
+    [
+        matrix[0][0] * vector[0]
+            + matrix[1][0] * vector[1]
+            + matrix[2][0] * vector[2]
+            + matrix[3][0] * vector[3],
+        matrix[0][1] * vector[0]
+            + matrix[1][1] * vector[1]
+            + matrix[2][1] * vector[2]
+            + matrix[3][1] * vector[3],
+        matrix[0][2] * vector[0]
+            + matrix[1][2] * vector[1]
+            + matrix[2][2] * vector[2]
+            + matrix[3][2] * vector[3],
+        matrix[0][3] * vector[0]
+            + matrix[1][3] * vector[1]
+            + matrix[2][3] * vector[2]
+            + matrix[3][3] * vector[3],
+    ]
+}
+
 impl From<ViewportCamera> for BridgeCameraState {
     fn from(value: ViewportCamera) -> Self {
         Self {
@@ -710,6 +795,20 @@ mod tests {
         assert!(solved.reached_target);
         assert!((solved.end.x - 1.0).abs() < 1.0e-4);
         assert!((solved.end.y - 1.0).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn clip_projection_preserves_homogeneous_w() {
+        let identity = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        assert_eq!(
+            project_clip(identity, [0.25, -0.5, 0.75]),
+            [0.25, -0.5, 0.75, 1.0]
+        );
     }
 
     #[test]
