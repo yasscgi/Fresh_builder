@@ -1294,6 +1294,113 @@ class _RigPanel extends StatelessWidget {
   }
 }
 
+class _FkEditor extends StatelessWidget {
+  const _FkEditor({
+    required this.jointNames,
+    required this.selectedBone,
+    required this.rotation,
+    required this.onBoneSelected,
+    required this.onGestureStart,
+    required this.onAxisChanged,
+    required this.onGestureEnd,
+    required this.onGestureCancel,
+  });
+
+  final List<String> jointNames;
+  final String? selectedBone;
+  final BridgeEuler? rotation;
+  final ValueChanged<String?> onBoneSelected;
+  final VoidCallback onGestureStart;
+  final void Function(String axis, double value) onAxisChanged;
+  final VoidCallback onGestureEnd;
+  final VoidCallback onGestureCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = jointNames.contains(selectedBone) ? selectedBone : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('FK bone', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 7),
+        DropdownButtonFormField<String>(
+          initialValue: selected,
+          isExpanded: true,
+          hint: Text(jointNames.isEmpty ? 'Load a skinned character' : 'Select bone'),
+          items: jointNames.map((bone) => DropdownMenuItem<String>(
+            value: bone,
+            child: Text(bone, overflow: TextOverflow.ellipsis),
+          )).toList(growable: false),
+          onChanged: jointNames.isEmpty ? null : onBoneSelected,
+          decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+        ),
+        if (selected != null) ...[
+          const SizedBox(height: 10),
+          _FkAxisSlider(axis: 'X', value: rotation?.x ?? 0, onStart: onGestureStart,
+            onChanged: (value) => onAxisChanged('x', value), onEnd: onGestureEnd),
+          _FkAxisSlider(axis: 'Y', value: rotation?.y ?? 0, onStart: onGestureStart,
+            onChanged: (value) => onAxisChanged('y', value), onEnd: onGestureEnd),
+          _FkAxisSlider(axis: 'Z', value: rotation?.z ?? 0, onStart: onGestureStart,
+            onChanged: (value) => onAxisChanged('z', value), onEnd: onGestureEnd),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onGestureCancel,
+              icon: const Icon(Icons.close_rounded, size: 14),
+              label: const Text('Cancel edit'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _FkAxisSlider extends StatelessWidget {
+  const _FkAxisSlider({
+    required this.axis,
+    required this.value,
+    required this.onStart,
+    required this.onChanged,
+    required this.onEnd,
+  });
+
+  final String axis;
+  final double value;
+  final VoidCallback onStart;
+  final ValueChanged<double> onChanged;
+  final VoidCallback onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    const limit = math.pi;
+    return Row(
+      children: [
+        SizedBox(width: 18, child: Text(axis,
+          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900))),
+        Expanded(
+          child: Slider(
+            min: -limit,
+            max: limit,
+            value: value.clamp(-limit, limit),
+            onChangeStart: (_) => onStart(),
+            onChanged: onChanged,
+            onChangeEnd: (_) => onEnd(),
+          ),
+        ),
+        SizedBox(
+          width: 42,
+          child: Text(
+            '\${(value * 180 / math.pi).round()}°',
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SegmentRigButton extends StatelessWidget {
   const _SegmentRigButton({
     required this.label,
