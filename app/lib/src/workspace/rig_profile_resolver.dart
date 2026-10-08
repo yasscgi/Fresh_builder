@@ -86,14 +86,37 @@ List<IkChainBinding> _parseRigChains(JsonMap rig) {
   final raw = rig['chains'] ?? rig['ik_chains'] ?? rig['ikChains'];
   if (raw is! List) return const <IkChainBinding>[];
 
+  final semanticToSource = <String, String>{};
+  final bones = rig['bones'];
+  if (bones is List) {
+    for (final item in bones) {
+      final row = jsonMap(item);
+      final semantic = _firstString(row, ['semantic', 'id', 'name']);
+      final source = _firstString(
+        row,
+        ['source_name', 'sourceName', 'source', 'bone', 'bone_name', 'boneName'],
+      );
+      if (semantic != null && source != null) {
+        semanticToSource[_normalizeBone(semantic)] = source;
+      }
+    }
+  }
+
+  String? resolveBone(String? value) {
+    if (value == null || value.isEmpty) return null;
+    return semanticToSource[_normalizeBone(value)] ?? value;
+  }
+
   final out = <IkChainBinding>[];
   for (final item in raw) {
     final row = jsonMap(item);
     final effector = _firstString(row, ['effector', 'name', 'id']);
-    final upper = _firstString(row, ['upper', 'upper_bone', 'upperBone']);
-    final lower = _firstString(row, ['lower', 'lower_bone', 'lowerBone']);
-    final end = _firstString(row, ['end', 'end_bone', 'endBone', 'target_bone', 'targetBone']);
-    if ([effector, upper, lower, end].any((value) => value == null || value!.isEmpty)) {
+    final upper = resolveBone(_firstString(row, ['upper', 'upper_bone', 'upperBone']));
+    final lower = resolveBone(_firstString(row, ['lower', 'lower_bone', 'lowerBone']));
+    final end = resolveBone(
+      _firstString(row, ['end', 'end_bone', 'endBone', 'target_bone', 'targetBone']),
+    );
+    if ([effector, upper, lower, end].any((value) => value == null || value.isEmpty)) {
       continue;
     }
 
