@@ -253,3 +253,25 @@ The solver itself is no longer the main IK gap. The next product-facing mileston
 - Closing a mobile editor during an active pose gesture cancels/resyncs the authoritative native pose.
 
 Remaining high-priority work: executable CI validation, true viewport picking/3D gizmos/IK handles, Rig V3 hinge/primary-axis constraints, and real hand/finger deformation.
+
+## Continuation update — 2026-10-08 (viewport rig interaction)
+
+Completed on active PR #17:
+- Native viewport now projects every skeleton joint from world space into current camera/viewport screen coordinates.
+- Flutter caches projected joint handles and refreshes them after scene load, resize, orbit, zoom, view changes, FK updates, IK updates and pose reset.
+- FK mode now renders real joint picking handles over the native texture. Tapping a handle selects the authoritative NativeRigSession bone.
+- Selected FK bones now expose direct X/Y/Z rotation gizmo handles in the viewport. Dragging an axis locks navigation, updates native FK/WGPU skinning and commits one history step on release.
+- IK mode now renders only resolved hand/foot effector handles from Rig V3/Mixamo chain bindings.
+- NativeRigSession now stores selected_effector as authoritative state; viewport handle selection and the IK editor stay synchronized.
+- Added camera screen-drag -> world-space delta conversion using the same FOV/view basis as rendering.
+- IK effector handles can now be dragged directly in the viewport. Mouse/touch deltas are converted in Rust to camera-plane world deltas, then sent through the existing NativeRigController -> two-bone IK -> skeleton rotations -> WGPU palette path.
+- IK drag input is coalesced, preserves fast early movement while joint context is loading, locks navigation, and commit is serialized after beginGesture plus all pending drag updates.
+- FK gizmo start/end is also serialized so commit cannot race beginGesture.
+
+Still pending:
+- executable CI/local validation; latest GitHub runs still fail jobs before repository steps execute,
+- renderer-backed bone/handle depth occlusion rather than overlay-only visibility,
+- more Blender-like circular rotation rings instead of compact axis handles,
+- Rig V3 hinge/primary-axis/limit enforcement,
+- hand/finger deformation,
+- Android/iOS native texture backends.
