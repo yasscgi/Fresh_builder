@@ -52,25 +52,8 @@ impl GpuScene {
             return Err("Scene transform requires finite values and a positive scale".to_owned());
         }
 
-        let translation_matrix = [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [translation[0], translation[1], translation[2], 1.0],
-        ];
-        let scale_matrix = [
-            [scale, 0.0, 0.0, 0.0],
-            [0.0, scale, 0.0, 0.0],
-            [0.0, 0.0, scale, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ];
-        let rotation_matrix =
-            euler_xyz_matrix(rotation_xyz[0], rotation_xyz[1], rotation_xyz[2]);
-
-        self.model_matrix = mat4_mul(
-            translation_matrix,
-            mat4_mul(rotation_matrix, scale_matrix),
-        );
+        self.model_matrix =
+            model_transform_matrix(translation, rotation_xyz, scale);
         queue.write_buffer(
             &self.model_buffer,
             0,
@@ -177,6 +160,33 @@ impl GpuScene {
     }
 }
 
+
+fn model_transform_matrix(
+    translation: [f32; 3],
+    rotation_xyz: [f32; 3],
+    scale: f32,
+) -> Mat4 {
+    let translation_matrix = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [translation[0], translation[1], translation[2], 1.0],
+    ];
+    let scale_matrix = [
+        [scale, 0.0, 0.0, 0.0],
+        [0.0, scale, 0.0, 0.0],
+        [0.0, 0.0, scale, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+    let rotation_matrix =
+        euler_xyz_matrix(rotation_xyz[0], rotation_xyz[1], rotation_xyz[2]);
+
+    mat4_mul(
+        translation_matrix,
+        mat4_mul(rotation_matrix, scale_matrix),
+    )
+}
+
 impl GpuContext {
     pub fn upload_scene(
         &self,
@@ -273,5 +283,24 @@ impl GpuContext {
             model_bind_group,
             model_matrix,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model_transform_matrix;
+    use crate::transform_point;
+
+    #[test]
+    fn scene_model_transform_scales_rotates_then_translates() {
+        let matrix = model_transform_matrix(
+            [1.0, 2.0, 3.0],
+            [0.0, 0.0, core::f32::consts::FRAC_PI_2],
+            2.0,
+        );
+        let point = transform_point(matrix, [1.0, 0.0, 0.0]);
+        assert!((point[0] - 1.0).abs() < 1.0e-5);
+        assert!((point[1] - 4.0).abs() < 1.0e-5);
+        assert!((point[2] - 3.0).abs() < 1.0e-5);
     }
 }
