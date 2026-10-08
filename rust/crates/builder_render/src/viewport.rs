@@ -139,6 +139,14 @@ impl ViewportRenderer {
         scene.set_joint_local_euler_xyz(&self.context.queue, joint_index, x, y, z)
     }
 
+    pub fn set_scene_hand_open(
+        &self,
+        scene: &mut GpuScene,
+        open_amount: f32,
+    ) -> Result<usize, String> {
+        scene.set_hand_open(&self.context.queue, open_amount)
+    }
+
     pub fn reset_scene_pose(&self, scene: &mut GpuScene) -> Result<(), String> {
         scene.reset_pose(&self.context.queue)
     }
