@@ -2037,6 +2037,12 @@ class BuilderViewport extends StatelessWidget {
                     ),
                     child: const SizedBox.expand(),
                   ),
+                if (rigMode == BridgeRigMode.fk)
+                  _RigJointOverlay(
+                    nativeController: nativeController,
+                    rigController: rigController,
+                    sceneKey: rigSceneKey,
+                  ),
                 if (nativeController.textureError != null)
                   Positioned(
                     left: 12,
@@ -2069,6 +2075,122 @@ class BuilderViewport extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _RigJointOverlay extends StatelessWidget {
+  const _RigJointOverlay({
+    required this.nativeController,
+    required this.rigController,
+    required this.sceneKey,
+  });
+
+  final NativeViewportController nativeController;
+  final NativeRigController rigController;
+  final String sceneKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final points = nativeController
+        .sceneJointScreenPoints(sceneKey)
+        .where((point) => point.visible)
+        .toList(growable: false)
+      ..sort((a, b) => b.depth.compareTo(a.depth));
+
+    if (points.isEmpty ||
+        nativeController.physicalWidth <= 0 ||
+        nativeController.physicalHeight <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final colors = Theme.of(context).colorScheme;
+    final selectedBone = rigController.selectedBone;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaleX =
+            constraints.maxWidth / nativeController.physicalWidth;
+        final scaleY =
+            constraints.maxHeight / nativeController.physicalHeight;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            for (final point in points)
+              _RigJointHandle(
+                point: point,
+                selected: point.bone == selectedBone,
+                x: point.x * scaleX,
+                y: point.y * scaleY,
+                accent: colors.primary,
+                onTap: () => unawaited(
+                  rigController.selectBone(point.bone),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RigJointHandle extends StatelessWidget {
+  const _RigJointHandle({
+    required this.point,
+    required this.selected,
+    required this.x,
+    required this.y,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final NativeJointScreenPoint point;
+  final bool selected;
+  final double x;
+  final double y;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = selected ? 18.0 : 13.0;
+    return Positioned(
+      left: x - size / 2,
+      top: y - size / 2,
+      width: size,
+      height: size,
+      child: Tooltip(
+        message: point.bone,
+        waitDuration: const Duration(milliseconds: 350),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: selected
+                  ? accent
+                  : accent.withValues(alpha: 0.18),
+              border: Border.all(
+                color: selected
+                    ? Colors.white
+                    : accent.withValues(alpha: 0.9),
+                width: selected ? 2 : 1.2,
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.38),
+                        blurRadius: 10,
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
