@@ -2688,6 +2688,21 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
         return Stack(
           fit: StackFit.expand,
           children: [
+            Positioned(
+              left: x - 46,
+              top: y - 46,
+              width: 92,
+              height: 92,
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _FkRotationRingPainter(
+                    allowedAxes: allowed,
+                    activeAxis: _axis,
+                    accent: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
             if (allowed.contains('x'))
             _FkAxisHandle(
               axis: 'X',
@@ -2725,6 +2740,61 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
         );
       },
     );
+  }
+}
+
+class _FkRotationRingPainter extends CustomPainter {
+  const _FkRotationRingPainter({
+    required this.allowedAxes,
+    required this.activeAxis,
+    required this.accent,
+  });
+
+  final Set<String> allowedAxes;
+  final String? activeAxis;
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final baseRadius = size.shortestSide * 0.34;
+
+    void drawRing(String axis, double radius, double start, double sweep) {
+      if (!allowedAxes.contains(axis)) return;
+      final active = activeAxis == axis;
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = active ? 3.2 : 1.6
+        ..strokeCap = StrokeCap.round
+        ..color = active
+            ? accent
+            : accent.withValues(alpha: 0.52);
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        start,
+        sweep,
+        false,
+        paint,
+      );
+    }
+
+    drawRing('x', baseRadius, -math.pi * 0.22, math.pi * 1.44);
+    drawRing('y', baseRadius + 7, math.pi * 0.12, math.pi * 1.32);
+    drawRing('z', baseRadius + 14, -math.pi * 0.68, math.pi * 1.28);
+
+    canvas.drawCircle(
+      center,
+      3.2,
+      Paint()..color = accent.withValues(alpha: 0.9),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _FkRotationRingPainter oldDelegate) {
+    return oldDelegate.activeAxis != activeAxis ||
+        oldDelegate.accent != accent ||
+        oldDelegate.allowedAxes.length != allowedAxes.length ||
+        !oldDelegate.allowedAxes.containsAll(allowedAxes);
   }
 }
 
