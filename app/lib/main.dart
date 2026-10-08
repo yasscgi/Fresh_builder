@@ -228,13 +228,22 @@ class _BuilderPageState extends State<BuilderPage> {
         viewport: _nativeViewport,
       );
       if (!mounted) return;
+      final validation = result.validation;
+      final quality = validation.watertight
+          ? 'Clean'
+          : 'Warnings: ${validation.connectedComponents} shells, '
+              '${validation.boundaryEdges} boundary, '
+              '${validation.nonManifoldEdges} non-manifold, '
+              '${validation.inconsistentWindingEdges} winding';
       _workspace.setBusy(
         false,
         status:
-            'STL saved · ${result.sceneCount} scenes · '
-            '${result.meshCount} meshes · '
+            'STL saved · $quality · '
             '${result.triangleCount} triangles',
       );
+    } on BuilderExportValidationException catch (error) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: error.message);
     } catch (_) {
       if (!mounted) return;
       _workspace.setBusy(false, status: 'STL export failed');
@@ -397,13 +406,22 @@ class _BuilderPageState extends State<BuilderPage> {
         viewport: _nativeViewport,
       );
       if (!mounted) return;
+      final validation = result.validation;
+      final quality = validation.watertight
+          ? 'Clean'
+          : 'Warnings: ${validation.connectedComponents} shells, '
+              '${validation.boundaryEdges} boundary, '
+              '${validation.nonManifoldEdges} non-manifold, '
+              '${validation.inconsistentWindingEdges} winding';
       _workspace.setBusy(
         false,
         status:
-            '3MF saved · ${result.sceneCount} scenes · '
-            '${result.meshCount} meshes · '
+            '3MF saved · $quality · '
             '${result.triangleCount} triangles',
       );
+    } on BuilderExportValidationException catch (error) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: error.message);
     } catch (_) {
       if (!mounted) return;
       _workspace.setBusy(false, status: '3MF export failed');
