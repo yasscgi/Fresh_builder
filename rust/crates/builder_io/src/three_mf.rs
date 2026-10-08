@@ -36,7 +36,7 @@ fn build_model_xml(scene: &RenderScene) -> Result<String, String> {
     }
 
     let mut out = String::from(
-        r#"<?xml version="1.0" encoding="UTF-8"?><model unit="meter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>"#,
+        r#"<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>"#,
     );
     let mut object_id = 1_u32;
 
@@ -46,10 +46,13 @@ fn build_model_xml(scene: &RenderScene) -> Result<String, String> {
         }
         out.push_str(&format!(r#"<object id="{object_id}" type="model"><mesh><vertices>"#));
         for vertex in &mesh.vertices {
-            let [x, y, z] = vertex.position;
-            if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            let [x_m, y_m, z_m] = vertex.position;
+            if !x_m.is_finite() || !y_m.is_finite() || !z_m.is_finite() {
                 return Err(format!("Mesh {} contains non-finite vertex", mesh.name));
             }
+            let x = x_m * 1000.0;
+            let y = y_m * 1000.0;
+            let z = z_m * 1000.0;
             out.push_str(&format!(r#"<vertex x="{x}" y="{y}" z="{z}"/>"#));
         }
         out.push_str("</vertices><triangles>");
@@ -169,6 +172,29 @@ fn write_u32(out: &mut Vec<u8>, value: u32) {
 mod tests {
     use super::*;
     use builder_render::{RenderMesh, RenderScene, RenderVertex};
+
+    #[test]
+    fn model_xml_exports_engine_meters_as_millimeters() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "unit".into(),
+                vertices: vec![
+                    RenderVertex { position: [0.1, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [0.0, 0.1, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [0.0, 0.0, 0.1], ..RenderVertex::default() },
+                ],
+                indices: vec![0, 1, 2],
+                skinned: false,
+            }],
+            ..RenderScene::default()
+        };
+
+        let xml = build_model_xml(&scene).unwrap();
+        assert!(xml.contains(r#"unit="millimeter""#));
+        assert!(xml.contains(r#"x="100"#));
+        assert!(xml.contains(r#"y="100"#));
+        assert!(xml.contains(r#"z="100"#));
+    }
 
     #[test]
     fn emits_zip_container_with_3mf_model() {
