@@ -2189,26 +2189,43 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
   }
 
   void _queueDrag(Offset logicalDelta, Size logicalSize) {
-    final chain = _activeChain;
-    if (chain == null || _target == null || _pole == null) return;
+    if (_activeChain == null) return;
     if (logicalSize.width <= 0 || logicalSize.height <= 0) return;
 
     final scaleX = widget.nativeController.physicalWidth / logicalSize.width;
     final scaleY = widget.nativeController.physicalHeight / logicalSize.height;
     _pendingDx += logicalDelta.dx * scaleX;
     _pendingDy += logicalDelta.dy * scaleY;
+    _ensureDragFlush();
+  }
 
-    if (_dragFlush == null) {
-      final future = _flushDrag();
-      _dragFlush = future;
-      unawaited(
-        future.whenComplete(() {
-          _dragFlush = null;
-          if (_pendingDx.abs() > 0.001 || _pendingDy.abs() > 0.001) {
-            _queueDrag(Offset.zero, logicalSize);
-          }
-        }),
-      );
+  void _ensureDragFlush() {
+    if (_dragFlush != null || _target == null || _pole == null) return;
+    if (_pendingDx.abs() <= 0.001 && _pendingDy.abs() <= 0.001) return;
+
+    final future = _flushDrag();
+    _dragFlush = future;
+    unawaited(
+      future.whenComplete(() {
+        _dragFlush = null;
+        if (_pendingDx.abs() > 0.001 || _pendingDy.abs() > 0.001) {
+          _ensureDragFlush();
+        }
+      }),
+    );
+  }
+
+  Future<void> _flushPendingDrag() async {
+    while (_pendingDx.abs() > 0.001 ||
+        _pendingDy.abs() > 0.001 ||
+        _dragFlush != null) {
+      _ensureDragFlush();
+      final active = _dragFlush;
+      if (active != null) {
+        await active;
+      } else {
+        break;
+      }
     }
   }
 
