@@ -162,11 +162,11 @@ pub struct BridgeScreenPoint {
 #[derive(Clone, Debug)]
 pub struct BridgePrintValidation {
     pub mesh_count: u32,
-    pub triangle_count: u64,
-    pub degenerate_triangles: u64,
-    pub boundary_edges: u64,
-    pub non_manifold_edges: u64,
-    pub invalid_indices: u64,
+    pub triangle_count: u32,
+    pub degenerate_triangles: u32,
+    pub boundary_edges: u32,
+    pub non_manifold_edges: u32,
+    pub invalid_indices: u32,
     pub watertight: bool,
 }
 
@@ -175,7 +175,7 @@ pub struct BridgeExportStatus {
     pub path: String,
     pub scene_count: u32,
     pub mesh_count: u32,
-    pub triangle_count: u64,
+    pub triangle_count: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -679,11 +679,11 @@ impl NativeViewportSession {
         let report = validate_print_scene(&merged);
         Ok(BridgePrintValidation {
             mesh_count: report.mesh_count,
-            triangle_count: report.triangle_count,
-            degenerate_triangles: report.degenerate_triangles,
-            boundary_edges: report.boundary_edges,
-            non_manifold_edges: report.non_manifold_edges,
-            invalid_indices: report.invalid_indices,
+            triangle_count: report.triangle_count.min(u32::MAX as u64) as u32,
+            degenerate_triangles: report.degenerate_triangles.min(u32::MAX as u64) as u32,
+            boundary_edges: report.boundary_edges.min(u32::MAX as u64) as u32,
+            non_manifold_edges: report.non_manifold_edges.min(u32::MAX as u64) as u32,
+            invalid_indices: report.invalid_indices.min(u32::MAX as u64) as u32,
             watertight: report.watertight(),
         })
     }
@@ -700,7 +700,8 @@ impl NativeViewportSession {
             .meshes
             .iter()
             .map(|mesh| (mesh.indices.len() / 3) as u64)
-            .sum::<u64>();
+            .sum::<u64>()
+            .min(u32::MAX as u64) as u32;
         let mesh_count = merged.meshes.len() as u32;
         write_binary_stl(&merged, &path)?;
         Ok(BridgeExportStatus {
@@ -723,7 +724,8 @@ impl NativeViewportSession {
             .meshes
             .iter()
             .map(|mesh| (mesh.indices.len() / 3) as u64)
-            .sum::<u64>();
+            .sum::<u64>()
+            .min(u32::MAX as u64) as u32;
         let mesh_count = merged.meshes.len() as u32;
         write_3mf(&merged, &path)?;
         Ok(BridgeExportStatus {
