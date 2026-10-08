@@ -45,6 +45,27 @@ class BuilderWorkspaceController extends ChangeNotifier {
   }
 
 
+  void beginAssetTransformGesture() {
+    if (_navigationLocked) return;
+    _navigationLocked = true;
+    _status = 'Editing asset';
+    notifyListeners();
+  }
+
+  void commitAssetTransformGesture() {
+    if (!_navigationLocked) return;
+    _navigationLocked = false;
+    _status = 'Asset transform committed';
+    notifyListeners();
+  }
+
+  void cancelAssetTransformGesture() {
+    if (!_navigationLocked) return;
+    _navigationLocked = false;
+    _status = null;
+    notifyListeners();
+  }
+
   void beginPoseGesture() {
     if (_navigationLocked) return;
     _navigationLocked = true;
