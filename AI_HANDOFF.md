@@ -275,3 +275,24 @@ Still pending:
 - Rig V3 hinge/primary-axis/limit enforcement,
 - hand/finger deformation,
 - Android/iOS native texture backends.
+
+## Continuation update — 2026-10-08 (Rig V3 constraints + real hands)
+
+Completed on active PR #17:
+- Added Rig V3 bone constraint resolver for primary_axis and hinge_axis metadata.
+- Hinge bones are reduced to the dominant local X/Y/Z axis for current Euler-based FK editing. Free bones keep X/Y/Z.
+- Desktop FK sliders, mobile FK editor and viewport FK gizmo now hide disallowed axes.
+- _updateFkAxis() also guards constraints so stale/legacy UI events cannot rotate a hinge bone on a forbidden axis.
+- FK gizmo now renders Blender-like rotation-ring visuals around the selected joint while retaining the compact axis hit targets.
+- Added tests for Rig V3 hinge-axis resolution.
+- Implemented native Mixamo finger open/close deformation in SkeletonPose. Finger joints are detected by LeftHand/RightHand + Thumb/Index/Middle/Ring/Pinky naming.
+- Hand curl updates all detected finger joints first, then performs a single GPU joint-palette upload.
+- Added a Rust regression test proving hand close changes only finger joints and open restores their rest transforms.
+- NativeViewportSession/Flutter viewport now expose set_scene_hand_open / setSceneHandOpen.
+- Rig resync after Cancel/Undo/Redo reapplies snapshot.hand_open after FK and IK.
+- Desktop and mobile hand buttons now use one page-level command that updates both NativeRigSession state and real renderer deformation.
+- UI status reports the number of finger joints affected, or explicitly reports when no Mixamo finger joints were found.
+
+Known constraint boundary:
+- Rig V3 currently provides primary_axis/hinge_axis but no explicit angular min/max limits in the current core schema. No arbitrary angle limits were invented. A future schema field should carry authored limits before native hard-clamping is added.
+- Finger fallback is explicitly Mixamo-name based until uploader/Rig V3 exports dedicated finger metadata.
