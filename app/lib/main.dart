@@ -302,6 +302,9 @@ class _BuilderPageState extends State<BuilderPage> {
                           jointNames: _nativeViewport.sceneJointNames(
                             _baseCharacterSceneKey,
                           ),
+                          boneConstraints: resolveRigBoneConstraints(
+                            data: _cloudData,
+                          ),
                           selectedBone: _nativeRig.selectedBone,
                           rotation: _nativeRig.selectedFkRotation,
                           onBoneSelected: (bone) =>
@@ -632,6 +635,7 @@ class _BuilderPageState extends State<BuilderPage> {
                       data: _cloudData,
                       jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
                     ),
+                    boneConstraints: resolveRigBoneConstraints(data: _cloudData),
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
                     cloudLoading: _cloudLoading,
@@ -746,6 +750,7 @@ class _BuilderPageState extends State<BuilderPage> {
                 data: _cloudData,
                 jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
               ),
+              boneConstraints: resolveRigBoneConstraints(data: _cloudData),
             ),
           ),
       ],
@@ -769,6 +774,7 @@ class _BuilderPageState extends State<BuilderPage> {
               data: _cloudData,
               jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
             ),
+            boneConstraints: resolveRigBoneConstraints(data: _cloudData),
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
             cloudLoading: _cloudLoading,
@@ -1158,6 +1164,7 @@ class _RigPanel extends StatelessWidget {
     required this.viewportController,
     required this.sceneKey,
     required this.ikChains,
+    required this.boneConstraints,
   });
 
   final NativeRigController rigController;
@@ -1172,6 +1179,7 @@ class _RigPanel extends StatelessWidget {
   final NativeViewportController viewportController;
   final String sceneKey;
   final List<IkChainBinding> ikChains;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
 
   @override
   Widget build(BuildContext context) {
@@ -1336,6 +1344,7 @@ class _RigPanel extends StatelessWidget {
                       const SizedBox(height: 14),
                       _FkEditor(
                         jointNames: jointNames,
+                        boneConstraints: boneConstraints,
                         selectedBone: rigController.selectedBone,
                         rotation: rigController.selectedFkRotation,
                         onBoneSelected: onBoneSelected,
@@ -1795,6 +1804,7 @@ class _IkAxisSlider extends StatelessWidget {
 class _FkEditor extends StatelessWidget {
   const _FkEditor({
     required this.jointNames,
+    required this.boneConstraints,
     required this.selectedBone,
     required this.rotation,
     required this.onBoneSelected,
@@ -1805,6 +1815,7 @@ class _FkEditor extends StatelessWidget {
   });
 
   final List<String> jointNames;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
   final String? selectedBone;
   final BridgeEuler? rotation;
   final ValueChanged<String?> onBoneSelected;
@@ -1816,6 +1827,10 @@ class _FkEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = jointNames.contains(selectedBone) ? selectedBone : null;
+    final allowed = selected == null
+        ? const <String>{'x', 'y', 'z'}
+        : boneConstraints[selected]?.allowedAxes ??
+            const <String>{'x', 'y', 'z'};
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2010,6 +2025,7 @@ class BuilderViewport extends StatelessWidget {
     required this.workspaceController,
     required this.rigSceneKey,
     required this.ikChains,
+    required this.boneConstraints,
     this.productName,
     this.assetCount,
     this.cloudLoading = false,
@@ -2026,6 +2042,7 @@ class BuilderViewport extends StatelessWidget {
   final BuilderWorkspaceController workspaceController;
   final String rigSceneKey;
   final List<IkChainBinding> ikChains;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
   final String? productName;
   final int? assetCount;
   final bool cloudLoading;
@@ -2083,6 +2100,7 @@ class BuilderViewport extends StatelessWidget {
                     rigController: rigController,
                     workspaceController: workspaceController,
                     sceneKey: rigSceneKey,
+                    boneConstraints: boneConstraints,
                   ),
                 if (rigMode == BridgeRigMode.ik)
                   _RigIkOverlay(
@@ -2487,12 +2505,14 @@ class _FkGizmoOverlay extends StatefulWidget {
     required this.rigController,
     required this.workspaceController,
     required this.sceneKey,
+    required this.boneConstraints,
   });
 
   final NativeViewportController nativeController;
   final NativeRigController rigController;
   final BuilderWorkspaceController workspaceController;
   final String sceneKey;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
 
   @override
   State<_FkGizmoOverlay> createState() => _FkGizmoOverlayState();
@@ -2605,9 +2625,13 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
             constraints.maxHeight /
             widget.nativeController.physicalHeight;
 
+        final allowed = widget.boneConstraints[bone]?.allowedAxes ??
+            const <String>{'x', 'y', 'z'};
+
         return Stack(
           fit: StackFit.expand,
           children: [
+            if (allowed.contains('x'))
             _FkAxisHandle(
               axis: 'X',
               x: x + 32,
@@ -2618,6 +2642,7 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
               onEnd: () => unawaited(_end()),
               onCancel: () => unawaited(_cancel()),
             ),
+            if (allowed.contains('y'))
             _FkAxisHandle(
               axis: 'Y',
               x: x,
@@ -2628,6 +2653,7 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
               onEnd: () => unawaited(_end()),
               onCancel: () => unawaited(_cancel()),
             ),
+            if (allowed.contains('z'))
             _FkAxisHandle(
               axis: 'Z',
               x: x + 24,
