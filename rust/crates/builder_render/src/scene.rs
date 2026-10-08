@@ -52,6 +52,57 @@ impl RenderScene {
     }
 }
 
+
+impl RenderScene {
+    pub fn baked_model_transform(&self, matrix: [[f32; 4]; 4]) -> Self {
+        let mut baked = self.clone();
+        for mesh in &mut baked.meshes {
+            for vertex in &mut mesh.vertices {
+                vertex.position = transform_point3(matrix, vertex.position);
+                vertex.normal = transform_normal3(matrix, vertex.normal);
+            }
+            mesh.skinned = false;
+            for vertex in &mut mesh.vertices {
+                vertex.joints = [0; 4];
+                vertex.weights = [0.0; 4];
+            }
+        }
+        baked.skeleton.joints.clear();
+        baked
+    }
+}
+
+fn transform_point3(matrix: [[f32; 4]; 4], point: [f32; 3]) -> [f32; 3] {
+    [
+        matrix[0][0] * point[0]
+            + matrix[1][0] * point[1]
+            + matrix[2][0] * point[2]
+            + matrix[3][0],
+        matrix[0][1] * point[0]
+            + matrix[1][1] * point[1]
+            + matrix[2][1] * point[2]
+            + matrix[3][1],
+        matrix[0][2] * point[0]
+            + matrix[1][2] * point[1]
+            + matrix[2][2] * point[2]
+            + matrix[3][2],
+    ]
+}
+
+fn transform_normal3(matrix: [[f32; 4]; 4], normal: [f32; 3]) -> [f32; 3] {
+    let value = [
+        matrix[0][0] * normal[0] + matrix[1][0] * normal[1] + matrix[2][0] * normal[2],
+        matrix[0][1] * normal[0] + matrix[1][1] * normal[1] + matrix[2][1] * normal[2],
+        matrix[0][2] * normal[0] + matrix[1][2] * normal[1] + matrix[2][2] * normal[2],
+    ];
+    let length = (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt();
+    if length > 1.0e-8 {
+        [value[0] / length, value[1] / length, value[2] / length]
+    } else {
+        normal
+    }
+}
+
 pub fn identity_matrix() -> [[f32; 4]; 4] {
     [
         [1.0, 0.0, 0.0, 0.0],
@@ -64,6 +115,44 @@ pub fn identity_matrix() -> [[f32; 4]; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn baking_model_transform_updates_geometry_and_removes_skinning() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "part".into(),
+                vertices: vec![RenderVertex {
+                    position: [1.0, 0.0, 0.0],
+                    normal: [1.0, 0.0, 0.0],
+                    joints: [1, 2, 0, 0],
+                    weights: [0.5, 0.5, 0.0, 0.0],
+                    ..RenderVertex::default()
+                }],
+                indices: vec![0],
+                skinned: true,
+            }],
+            skeleton: RenderSkeleton {
+                joints: vec![RenderJoint {
+                    name: "root".into(),
+                    parent: None,
+                    inverse_bind_matrix: identity_matrix(),
+                    local_matrix: identity_matrix(),
+                }],
+            },
+        };
+
+        let matrix = [
+            [2.0, 0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0, 0.0],
+            [0.0, 0.0, 2.0, 0.0],
+            [1.0, 2.0, 3.0, 1.0],
+        ];
+        let baked = scene.baked_model_transform(matrix);
+        assert_eq!(baked.meshes[0].vertices[0].position, [3.0, 2.0, 3.0]);
+        assert_eq!(baked.meshes[0].vertices[0].normal, [1.0, 0.0, 0.0]);
+        assert!(!baked.meshes[0].skinned);
+        assert!(baked.skeleton.joints.is_empty());
+    }
 
     #[test]
     fn counts_scene_geometry_and_joints() {
