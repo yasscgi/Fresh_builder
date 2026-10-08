@@ -46,7 +46,9 @@ private final class FreshBuilderPixelTexture: NSObject, FlutterTexture {
             return nil
         }
 
-        rgba = Array(repeating: 0, count: required)
+        if rgba.count != required {
+            rgba = Array(repeating: 0, count: required)
+        }
         let copied = rgba.withUnsafeMutableBufferPointer { buffer in
             copyLatestFrame(
                 buffer.baseAddress,
