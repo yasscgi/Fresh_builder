@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import '../cloud/builder_cloud_models.dart';
+import '../cloud/builder_design_cloud_repository.dart';
 import 'native_rig_controller.dart';
 import 'native_viewport_controller.dart';
 
@@ -98,6 +99,49 @@ final class BuilderDesignPersistence {
     };
   }
 
+
+  Future<String?> saveCloudSnapshot({
+    required String productId,
+    required String productName,
+    required Map<String, BuilderAssetChoice> sceneSelections,
+    required NativeViewportController viewport,
+    required NativeRigController rig,
+    BuilderDesignCloudRepository? repository,
+  }) async {
+    final cloud = repository ?? BuilderDesignCloudRepository();
+    if (!cloud.signedIn) return null;
+
+    final design = buildSnapshot(
+      productId: productId,
+      sceneSelections: sceneSelections,
+      viewport: viewport,
+      rig: rig,
+    );
+    return cloud.saveDesign(
+      productId: productId,
+      name: '$productName · Native',
+      design: design,
+    );
+  }
+
+  Future<BuilderDesignSnapshot?> loadBestSnapshot({
+    required String productId,
+    required String productName,
+    BuilderDesignCloudRepository? repository,
+  }) async {
+    final cloud = repository ?? BuilderDesignCloudRepository();
+    if (cloud.signedIn) {
+      final latest = await cloud.latestDesign(productId: productId);
+      final design = latest?.design;
+      if (design != null &&
+          design['format'] == 'fresh_builder_design' &&
+          (design['version'] as num?)?.toInt() == 5) {
+        return BuilderDesignSnapshot.fromJson(design);
+      }
+    }
+
+    return loadSnapshot(productName: productName);
+  }
 
   Future<BuilderDesignSnapshot?> loadSnapshot({
     required String productName,
