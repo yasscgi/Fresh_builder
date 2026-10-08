@@ -299,6 +299,41 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
+  Future<BridgeIkResult?> setSceneTwoBoneIk({
+    required String sceneKey,
+    required String upper,
+    required String lower,
+    required String end,
+    required double targetX,
+    required double targetY,
+    required double targetZ,
+    required double poleX,
+    required double poleY,
+    required double poleZ,
+  }) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+
+    try {
+      final result = await session.setSceneTwoBoneIk(
+        sceneKey: sceneKey,
+        upper: upper,
+        lower: lower,
+        end: end,
+        target: BridgeVec3(x: targetX, y: targetY, z: targetZ),
+        pole: BridgeVec3(x: poleX, y: poleY, z: poleZ),
+      );
+      await _markTextureFrame();
+      _sceneError = null;
+      notifyListeners();
+      return result;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> resetScenePose(String sceneKey) async {
     final session = _session;
     if (session == null || _error != null) return;
