@@ -2077,6 +2077,13 @@ class BuilderViewport extends StatelessWidget {
                     rigController: rigController,
                     sceneKey: rigSceneKey,
                   ),
+                if (rigMode == BridgeRigMode.fk)
+                  _FkGizmoOverlay(
+                    nativeController: nativeController,
+                    rigController: rigController,
+                    workspaceController: workspaceController,
+                    sceneKey: rigSceneKey,
+                  ),
                 if (rigMode == BridgeRigMode.ik)
                   _RigIkOverlay(
                     nativeController: nativeController,
@@ -2451,6 +2458,224 @@ class _IkEffectorHandle extends StatelessWidget {
               Icons.open_with_rounded,
               size: selected ? 15 : 12,
               color: selected ? Colors.white : accent,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FkGizmoOverlay extends StatefulWidget {
+  const _FkGizmoOverlay({
+    required this.nativeController,
+    required this.rigController,
+    required this.workspaceController,
+    required this.sceneKey,
+  });
+
+  final NativeViewportController nativeController;
+  final NativeRigController rigController;
+  final BuilderWorkspaceController workspaceController;
+  final String sceneKey;
+
+  @override
+  State<_FkGizmoOverlay> createState() => _FkGizmoOverlayState();
+}
+
+class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
+  String? _axis;
+  double _delta = 0;
+  BridgeEuler? _base;
+
+  Future<void> _start(String axis) async {
+    final bone = widget.rigController.selectedBone;
+    if (bone == null) return;
+    _axis = axis;
+    _delta = 0;
+    _base = widget.rigController.selectedFkRotation ??
+        const BridgeEuler(x: 0, y: 0, z: 0);
+    widget.workspaceController.beginPoseGesture();
+    await widget.rigController.beginGesture();
+  }
+
+  void _update(DragUpdateDetails details) {
+    final bone = widget.rigController.selectedBone;
+    final axis = _axis;
+    final base = _base;
+    if (bone == null || axis == null || base == null) return;
+
+    final movement = axis == 'y'
+        ? -details.delta.dy
+        : axis == 'x'
+            ? details.delta.dx
+            : (details.delta.dx - details.delta.dy) * 0.5;
+    _delta += movement * 0.012;
+
+    widget.rigController.updateFkRotation(
+      viewport: widget.nativeController,
+      sceneKey: widget.sceneKey,
+      bone: bone,
+      x: axis == 'x' ? base.x + _delta : base.x,
+      y: axis == 'y' ? base.y + _delta : base.y,
+      z: axis == 'z' ? base.z + _delta : base.z,
+    );
+  }
+
+  Future<void> _end() async {
+    try {
+      await widget.rigController.commitGesture();
+    } finally {
+      widget.workspaceController.commitPoseGesture();
+      _axis = null;
+      _delta = 0;
+      _base = null;
+    }
+  }
+
+  Future<void> _cancel() async {
+    try {
+      await widget.rigController.cancelGesture(
+        viewport: widget.nativeController,
+        sceneKey: widget.sceneKey,
+      );
+    } finally {
+      widget.workspaceController.cancelPoseGesture();
+      _axis = null;
+      _delta = 0;
+      _base = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bone = widget.rigController.selectedBone;
+    if (bone == null ||
+        widget.nativeController.physicalWidth <= 0 ||
+        widget.nativeController.physicalHeight <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    NativeJointScreenPoint? point;
+    for (final item
+        in widget.nativeController.sceneJointScreenPoints(widget.sceneKey)) {
+      if (item.visible && item.bone == bone) {
+        point = item;
+        break;
+      }
+    }
+    if (point == null) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final x = point!.x *
+            constraints.maxWidth /
+            widget.nativeController.physicalWidth;
+        final y = point.y *
+            constraints.maxHeight /
+            widget.nativeController.physicalHeight;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            _FkAxisHandle(
+              axis: 'X',
+              x: x + 32,
+              y: y,
+              active: _axis == 'x',
+              onStart: () => unawaited(_start('x')),
+              onUpdate: _update,
+              onEnd: () => unawaited(_end()),
+              onCancel: () => unawaited(_cancel()),
+            ),
+            _FkAxisHandle(
+              axis: 'Y',
+              x: x,
+              y: y - 32,
+              active: _axis == 'y',
+              onStart: () => unawaited(_start('y')),
+              onUpdate: _update,
+              onEnd: () => unawaited(_end()),
+              onCancel: () => unawaited(_cancel()),
+            ),
+            _FkAxisHandle(
+              axis: 'Z',
+              x: x + 24,
+              y: y + 24,
+              active: _axis == 'z',
+              onStart: () => unawaited(_start('z')),
+              onUpdate: _update,
+              onEnd: () => unawaited(_end()),
+              onCancel: () => unawaited(_cancel()),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FkAxisHandle extends StatelessWidget {
+  const _FkAxisHandle({
+    required this.axis,
+    required this.x,
+    required this.y,
+    required this.active,
+    required this.onStart,
+    required this.onUpdate,
+    required this.onEnd,
+    required this.onCancel,
+  });
+
+  final String axis;
+  final double x;
+  final double y;
+  final bool active;
+  final VoidCallback onStart;
+  final ValueChanged<DragUpdateDetails> onUpdate;
+  final VoidCallback onEnd;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    const size = 24.0;
+    return Positioned(
+      left: x - size / 2,
+      top: y - size / 2,
+      width: size,
+      height: size,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (_) => onStart(),
+        onPanUpdate: onUpdate,
+        onPanEnd: (_) => onEnd(),
+        onPanCancel: onCancel,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: active
+                ? colors.primary
+                : colors.surface.withValues(alpha: 0.94),
+            border: Border.all(
+              color: active ? Colors.white : colors.primary,
+              width: active ? 2 : 1.4,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colors.primary.withValues(alpha: active ? 0.4 : 0.18),
+                blurRadius: active ? 12 : 7,
+              ),
+            ],
+          ),
+          child: Text(
+            axis,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              color: active ? Colors.white : colors.primary,
             ),
           ),
         ),
