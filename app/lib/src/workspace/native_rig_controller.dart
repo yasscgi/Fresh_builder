@@ -432,6 +432,10 @@ class NativeRigController extends ChangeNotifier {
         poleZ: ik.pole.z,
       );
     }
+    await viewport.setSceneHandOpen(
+      sceneKey: sceneKey,
+      openAmount: snapshot.handOpen,
+    );
   }
 
   Future<NativeRigSession> _requireSession() async {
