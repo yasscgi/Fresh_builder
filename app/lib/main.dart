@@ -20,6 +20,7 @@ import 'src/rust/frb_generated.dart';
 import 'src/workspace/asset_transform_ui.dart';
 import 'src/workspace/builder_design_persistence.dart';
 import 'src/workspace/builder_persistence_actions.dart';
+import 'src/workspace/builder_saved_designs_picker.dart';
 import 'src/workspace/builder_workspace.dart';
 import 'src/workspace/current_builder_ui.dart';
 import 'src/workspace/native_rig_controller.dart';
@@ -276,10 +277,22 @@ class _BuilderPageState extends State<BuilderPage> {
 
     _workspace.setBusy(true, status: 'Restoring Design v5…');
     try {
-      final saved = await _persistence.loadBestSnapshot(
+      final choice = await showBuilderSavedDesignPicker(
+        context: context,
         productId: product.id,
-        productName: product.name,
       );
+      if (!mounted || choice == null) {
+        _workspace.setBusy(false, status: null);
+        return;
+      }
+
+      final saved = switch (choice) {
+        BuilderCloudRestoreChoice(:final design) =>
+          BuilderDesignSnapshot.fromJson(design.design),
+        BuilderLocalRestoreChoice() => await _persistence.loadSnapshot(
+            productName: product.name,
+          ),
+      };
       if (saved == null) {
         _workspace.setBusy(false, status: 'No saved Design v5 found');
         return;
