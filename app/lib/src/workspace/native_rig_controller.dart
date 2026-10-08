@@ -400,6 +400,93 @@ class NativeRigController extends ChangeNotifier {
     }
   }
 
+  Future<void> restoreDesignPose({
+    required NativeViewportController viewport,
+    required String sceneKey,
+    required Map<String, dynamic> pose,
+  }) async {
+    await reset();
+    if (!viewport.hasLoadedScene(sceneKey)) return;
+
+    await viewport.resetScenePose(sceneKey);
+    await beginGesture();
+
+    for (final raw in (pose['fk'] as List? ?? const [])) {
+      if (raw is! Map) continue;
+      final row = raw.map((key, value) => MapEntry(key.toString(), value));
+      final bone = row['bone']?.toString() ?? '';
+      final rotation = row['rotation'] as List? ?? const [];
+      if (bone.isEmpty || rotation.length < 3) continue;
+      final x = (rotation[0] as num?)?.toDouble() ?? 0.0;
+      final y = (rotation[1] as num?)?.toDouble() ?? 0.0;
+      final z = (rotation[2] as num?)?.toDouble() ?? 0.0;
+      updateFkRotation(
+        viewport: viewport,
+        sceneKey: sceneKey,
+        bone: bone,
+        x: x,
+        y: y,
+        z: z,
+      );
+    }
+
+    for (final raw in (pose['ik'] as List? ?? const [])) {
+      if (raw is! Map) continue;
+      final row = raw.map((key, value) => MapEntry(key.toString(), value));
+      final effector = row['effector']?.toString() ?? '';
+      final upper = row['upper']?.toString() ?? '';
+      final lower = row['lower']?.toString() ?? '';
+      final end = row['end']?.toString() ?? '';
+      final target = row['target'] as List? ?? const [];
+      final pole = row['pole'] as List? ?? const [];
+      if (effector.isEmpty ||
+          upper.isEmpty ||
+          lower.isEmpty ||
+          end.isEmpty ||
+          target.length < 3 ||
+          pole.length < 3) {
+        continue;
+      }
+      updateIkTarget(
+        viewport: viewport,
+        sceneKey: sceneKey,
+        effector: effector,
+        upper: upper,
+        lower: lower,
+        end: end,
+        targetX: (target[0] as num?)?.toDouble() ?? 0.0,
+        targetY: (target[1] as num?)?.toDouble() ?? 0.0,
+        targetZ: (target[2] as num?)?.toDouble() ?? 0.0,
+        poleX: (pole[0] as num?)?.toDouble() ?? 0.0,
+        poleY: (pole[1] as num?)?.toDouble() ?? 0.0,
+        poleZ: (pole[2] as num?)?.toDouble() ?? 0.0,
+      );
+    }
+
+    await commitGesture();
+
+    final handOpen =
+        ((pose['hand_open'] as num?)?.toDouble() ?? 1.0) >= 0.5;
+    await setHandOpen(handOpen);
+
+    final selectedBone = pose['selected_bone']?.toString();
+    if (selectedBone != null && selectedBone.isNotEmpty) {
+      await selectBone(selectedBone);
+    }
+    final selectedEffector = pose['selected_effector']?.toString();
+    if (selectedEffector != null && selectedEffector.isNotEmpty) {
+      await selectEffector(selectedEffector);
+    }
+
+    final mode = switch (pose['mode']?.toString().toLowerCase()) {
+      'ik' => BridgeRigMode.ik,
+      'fk' => BridgeRigMode.fk,
+      _ => BridgeRigMode.none,
+    };
+    await setMode(mode);
+    await syncViewport(viewport, sceneKey);
+  }
+
   Future<void> syncViewport(
     NativeViewportController viewport,
     String sceneKey,
