@@ -49,6 +49,13 @@ void write_u32_le(uint8_t* target, uint32_t value) {
   target[3] = static_cast<uint8_t>((value >> 24) & 0xff);
 }
 
+void write_u64_le(uint8_t* target, uint64_t value) {
+  for (int shift = 0; shift < 8; ++shift) {
+    target[shift] =
+        static_cast<uint8_t>((value >> (shift * 8)) & 0xff);
+  }
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -84,10 +91,11 @@ Java_com_freshstl_fresh_1builder_1viewport_1texture_FreshBuilderViewportTextureP
     return nullptr;
   }
 
-  std::vector<uint8_t> packed(8 + required);
+  std::vector<uint8_t> packed(16 + required);
   write_u32_le(packed.data(), width);
   write_u32_le(packed.data() + 4, height);
-  std::memcpy(packed.data() + 8, rgba.data(), required);
+  write_u64_le(packed.data() + 8, generation);
+  std::memcpy(packed.data() + 16, rgba.data(), required);
 
   jbyteArray result = env->NewByteArray(static_cast<jsize>(packed.size()));
   if (result == nullptr) {
