@@ -249,3 +249,26 @@ Known constraint boundary:
 - Added tests for optional FK rotation-limit parsing and clamping.
 
 Uploader work still needed: emit rotation_limits metadata from Blender when the autorig has authored joint limits. Existing V3 files remain compatible and unconstrained when limits are absent.
+
+## Continuation update — 2026-10-08 (depth-aware picking + GPU asset transforms)
+
+Completed on active PR #17:
+- Added Depth32Float COPY_SRC support and batched native depth-buffer readback.
+- Projected skeleton joints can now be depth-tested against the rendered mesh; occluded joints/effectors are hidden from picking.
+- Added a fast projection path without depth readback for live FK/IK deformation.
+- Flutter uses fast projection during live rig edits and performs depth-aware refresh after commit/cancel/undo/redo, camera/view/reset and explicit refreshes.
+- Added a depth-visibility regression test.
+- Added a third WGPU model-transform bind group per GpuScene.
+- Mesh shader now applies: skinning -> scene model matrix -> camera matrix.
+- Each scene owns a 64-byte model uniform, so move/rotate/scale updates do not re-upload meshes or joint palettes.
+- Added NativeViewportSession / Flutter APIs for independent scene translation, Euler rotation and uniform scale.
+- NativeViewportController now tracks transforms per scene and clears them with scene lifecycle.
+- Builder Move/Rotate/Scale tools now operate on the selected non-base-character asset scene only; rig pose remains separate.
+- Added desktop/mobile selected-asset transform panels and Reset Transform.
+- Added pure Rust test verifying model transform order scale -> rotate -> translate.
+
+Still pending for asset transforms:
+- commit-on-release transform history/undo stack separate from rig history,
+- direct viewport transform gizmos instead of slider-only controls,
+- persistence of asset transforms into BuilderDesign/cloud saves,
+- transform-aware export baking for STL/3MF.
