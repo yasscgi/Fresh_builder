@@ -217,3 +217,25 @@ Before coding:
 - IK still needs solved-point -> real joint-rotation conversion before viewport controls should be exposed.
 
 Next exact step: validate this branch with executable CI/local Flutter+Rust tooling, then implement renderer-backed IK joint rotations and reuse the same palette update path. Do not add a second Flutter pose model.
+
+## Continuation update — 2026-10-08 (IK native path)
+
+Completed on active PR #17:
+- Fixed a unit-space rig bug in GLB/glTF import: mesh positions were scaled by meters_per_unit while skeleton local translations and inverse-bind translations were not. Skeleton and inverse-bind translations now use the same uniform scene-unit scale, with a regression test.
+- Added SkeletonPose joint world-position queries and a two-bone solution application path.
+- Added robust direction-to-direction rotation math, affine parent inverse handling, hierarchy validation and tests that prove upper/lower joints aim at solved mid/end points.
+- GpuScene and ViewportRenderer can now apply a two-bone solution and upload only the joint palette.
+- NativeViewportSession now exposes set_scene_two_bone_ik(): scene + upper/lower/end + target/pole -> builder_core two-bone solve -> skeleton rotations -> WGPU palette -> redraw.
+- NativeRigSession now stores complete IK commands (effector, upper, lower, end, target, pole) so Cancel/Undo/Redo can faithfully reconstruct IK.
+- NativeViewportController exposes the native IK bridge.
+- NativeRigController now coalesces IK updates, serializes them with gesture lifecycle, and syncViewport() replays both FK and IK from the authoritative Rust snapshot.
+- Fixed a race where Undo/Redo waited for pending FK work but not pending IK work.
+
+Still pending:
+- executable CI/local compile validation (GitHub-hosted runner allocation remains the known external blocker until a new run actually executes steps),
+- Rig V3 metadata -> explicit effector chain binding in Flutter/native UI,
+- viewport IK handles/picking and mobile manipulation,
+- constraints/hinge-axis enforcement from Rig V3 metadata,
+- hand open/close connection to actual finger bones or morph targets.
+
+The solver itself is no longer the main IK gap. The next product-facing milestone is chain binding + interactive IK controls/picking on top of this native path.
