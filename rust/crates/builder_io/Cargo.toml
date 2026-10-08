@@ -7,4 +7,5 @@ license = "Proprietary"
 [dependencies]
 sha2 = "0.10"
 gltf = { version = "1.4", features = ["import"] }
+ufbx = "0.11.5"
 builder_render = { path = "../builder_render" }
