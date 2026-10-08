@@ -293,7 +293,6 @@ class _BuilderPageState extends State<BuilderPage> {
                               ),
                             ),
                             rigController: _nativeRig,
-                    rigSceneKey: _baseCharacterSceneKey,
                             viewportController: _nativeViewport,
                             workspace: _workspace,
                             sceneKey: _baseCharacterSceneKey,
@@ -590,7 +589,6 @@ class _BuilderPageState extends State<BuilderPage> {
                   selectedProduct: _selectedProduct,
                   onProductSelected: _openProduct,
                   rigController: _nativeRig,
-                    rigSceneKey: _baseCharacterSceneKey,
                   onUndo: () => unawaited(_undoRig()),
                   onRedo: () => unawaited(_redoRig()),
                 ),
@@ -729,7 +727,6 @@ class _BuilderPageState extends State<BuilderPage> {
             width: 332,
             child: _RigPanel(
               rigController: _nativeRig,
-                    rigSceneKey: _baseCharacterSceneKey,
               onModeChanged: (mode) => unawaited(_setRigMode(mode)),
               workspace: _workspace,
               jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
@@ -761,7 +758,7 @@ class _BuilderPageState extends State<BuilderPage> {
             child: BuilderViewport(
             nativeController: _nativeViewport,
             rigController: _nativeRig,
-                    rigSceneKey: _baseCharacterSceneKey,
+            rigSceneKey: _baseCharacterSceneKey,
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
             cloudLoading: _cloudLoading,
