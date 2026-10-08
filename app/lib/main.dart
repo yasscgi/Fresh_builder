@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:fresh_builder_viewport_texture/fresh_builder_viewport_texture.dart';
 
 import 'src/cloud/builder_asset_disk_cache.dart';
@@ -98,6 +101,8 @@ class _BuilderPageState extends State<BuilderPage> {
   BuilderProductSummary? _selectedProduct;
   BuilderCloudData? _cloudData;
   BuilderAssetChoice? _selectedAsset;
+  final Map<String, BuilderAssetChoice> _sceneSelections =
+      <String, BuilderAssetChoice>{};
   CachedBuilderAsset? _cachedAsset;
   BuilderAssetDiskCache? _assetCache;
   bool _cloudLoading = false;
@@ -155,6 +160,7 @@ class _BuilderPageState extends State<BuilderPage> {
         path: local.file.path,
         metersPerUnit: _metersPerUnit(choice),
       );
+      _sceneSelections[_baseCharacterSceneKey] = choice;
       if (!mounted) return;
       final nativeScene = _nativeViewport.sceneStatus;
       _workspace.setBusy(
@@ -469,11 +475,13 @@ class _BuilderPageState extends State<BuilderPage> {
       });
 
       _workspace.setBusy(true, status: 'Loading native scene');
+      final nativeSceneKey = _nativeSceneKey(choice);
       await _nativeViewport.upsertLocalScene(
-        sceneKey: _nativeSceneKey(choice),
+        sceneKey: nativeSceneKey,
         path: local.file.path,
         metersPerUnit: _metersPerUnit(choice),
       );
+      _sceneSelections[nativeSceneKey] = choice;
 
       if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
       final nativeScene = _nativeViewport.sceneStatus;
@@ -638,6 +646,7 @@ class _BuilderPageState extends State<BuilderPage> {
     _workspace.cancelPoseGesture();
     _workspace.setRigVisible(false);
     await _nativeViewport.clearScenes();
+    _sceneSelections.clear();
     setState(() {
       _selectedProduct = product;
       _cloudLoading = true;
