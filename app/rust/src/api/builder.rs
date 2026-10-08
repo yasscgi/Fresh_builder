@@ -406,6 +406,27 @@ impl NativeViewportSession {
         Ok(scene.joint_names().to_vec())
     }
 
+    pub fn scene_joint_world_position(
+        &self,
+        scene_key: String,
+        bone: String,
+    ) -> Result<BridgeVec3, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+        let joint_index = scene
+            .joint_index(&bone)
+            .ok_or_else(|| format!("Bone {bone} was not found in scene {scene_key}"))?;
+        let position = scene.joint_world_position(joint_index)?;
+        Ok(BridgeVec3 {
+            x: position[0],
+            y: position[1],
+            z: position[2],
+        })
+    }
+
     pub fn remove_scene(&self, scene_key: String) -> Result<bool, String> {
         let mut inner = self.lock_inner()?;
         let removed = inner.scenes.remove(&scene_key).is_some();
