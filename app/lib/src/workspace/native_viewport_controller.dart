@@ -20,6 +20,8 @@ class NativeViewportController extends ChangeNotifier {
   final Map<String, List<String>> _jointNamesByScene = <String, List<String>>{};
   final Map<String, List<NativeJointScreenPoint>> _jointScreenPointsByScene =
       <String, List<NativeJointScreenPoint>>{};
+  final Map<String, NativeSceneTransform> _sceneTransforms =
+      <String, NativeSceneTransform>{};
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -47,6 +49,8 @@ class NativeViewportController extends ChangeNotifier {
       List<NativeJointScreenPoint>.unmodifiable(
         _jointScreenPointsByScene[sceneKey] ?? const <NativeJointScreenPoint>[],
       );
+  NativeSceneTransform sceneTransform(String sceneKey) =>
+      _sceneTransforms[sceneKey] ?? const NativeSceneTransform();
 
   Future<void> ensureInitialized({
     required double logicalWidth,
@@ -243,11 +247,16 @@ class NativeViewportController extends ChangeNotifier {
         _loadedSceneKeys.add(sceneKey);
         _jointNamesByScene[sceneKey] =
             await session.sceneJointNames(sceneKey: sceneKey);
+        _sceneTransforms.putIfAbsent(
+          sceneKey,
+          () => const NativeSceneTransform(),
+        );
         await _refreshJointScreenPoints(sceneKey);
       } else {
         _loadedSceneKeys.remove(sceneKey);
         _jointNamesByScene.remove(sceneKey);
         _jointScreenPointsByScene.remove(sceneKey);
+        _sceneTransforms.remove(sceneKey);
       }
       _sceneError = null;
       await _markTextureFrame();
@@ -352,6 +361,7 @@ class NativeViewportController extends ChangeNotifier {
     _loadedSceneKeys.clear();
     _jointNamesByScene.clear();
     _jointScreenPointsByScene.clear();
+    _sceneTransforms.clear();
     _sceneStatus = null;
     _sceneError = null;
     final session = _session;
@@ -364,6 +374,40 @@ class NativeViewportController extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  Future<void> setSceneTransform({
+    required String sceneKey,
+    required NativeSceneTransform transform,
+  }) async {
+    final session = _session;
+    if (session == null || _error != null) return;
+
+    try {
+      await session.setSceneModelTransform(
+        sceneKey: sceneKey,
+        transform: BridgeSceneTransform(
+          translation: BridgeVec3(
+            x: transform.tx,
+            y: transform.ty,
+            z: transform.tz,
+          ),
+          rotation: BridgeVec3(
+            x: transform.rx,
+            y: transform.ry,
+            z: transform.rz,
+          ),
+          scale: transform.scale,
+        ),
+      );
+      _sceneTransforms[sceneKey] = transform;
+      await _markTextureFrame();
+      notifyListeners();
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> setSceneFkRotation({
@@ -549,4 +593,45 @@ class NativeJointScreenPoint {
   final double y;
   final double depth;
   final bool visible;
+}
+
+
+class NativeSceneTransform {
+  const NativeSceneTransform({
+    this.tx = 0,
+    this.ty = 0,
+    this.tz = 0,
+    this.rx = 0,
+    this.ry = 0,
+    this.rz = 0,
+    this.scale = 1,
+  });
+
+  final double tx;
+  final double ty;
+  final double tz;
+  final double rx;
+  final double ry;
+  final double rz;
+  final double scale;
+
+  NativeSceneTransform copyWith({
+    double? tx,
+    double? ty,
+    double? tz,
+    double? rx,
+    double? ry,
+    double? rz,
+    double? scale,
+  }) {
+    return NativeSceneTransform(
+      tx: tx ?? this.tx,
+      ty: ty ?? this.ty,
+      tz: tz ?? this.tz,
+      rx: rx ?? this.rx,
+      ry: ry ?? this.ry,
+      rz: rz ?? this.rz,
+      scale: scale ?? this.scale,
+    );
+  }
 }
