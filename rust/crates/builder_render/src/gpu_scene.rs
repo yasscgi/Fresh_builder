@@ -82,6 +82,16 @@ impl GpuScene {
         self.upload_current_palette(queue)
     }
 
+    pub fn set_hand_open(
+        &mut self,
+        queue: &wgpu::Queue,
+        open_amount: f32,
+    ) -> Result<usize, String> {
+        let affected = self.skeleton_pose.apply_mixamo_hand_open(open_amount)?;
+        self.upload_current_palette(queue)?;
+        Ok(affected)
+    }
+
     pub fn reset_pose(&mut self, queue: &wgpu::Queue) -> Result<(), String> {
         self.skeleton_pose.reset_to_rest();
         self.upload_current_palette(queue)
