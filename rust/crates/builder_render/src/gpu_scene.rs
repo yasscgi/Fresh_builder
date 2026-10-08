@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::{euler_xyz_matrix, identity_matrix, GpuContext, Mat4, RenderScene, SkeletonPose};
+use crate::{euler_xyz_matrix, identity_matrix, mat4_mul, GpuContext, Mat4, RenderScene, SkeletonPose};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -27,9 +27,58 @@ pub struct GpuScene {
     pub skeleton_pose: SkeletonPose,
     joint_palette_buffer: wgpu::Buffer,
     pub joint_palette_bind_group: wgpu::BindGroup,
+    model_buffer: wgpu::Buffer,
+    pub model_bind_group: wgpu::BindGroup,
+    model_matrix: Mat4,
 }
 
 impl GpuScene {
+    pub fn model_matrix(&self) -> Mat4 {
+        self.model_matrix
+    }
+
+    pub fn set_model_transform(
+        &mut self,
+        queue: &wgpu::Queue,
+        translation: [f32; 3],
+        rotation_xyz: [f32; 3],
+        scale: f32,
+    ) -> Result<(), String> {
+        if translation.iter().any(|value| !value.is_finite())
+            || rotation_xyz.iter().any(|value| !value.is_finite())
+            || !scale.is_finite()
+            || scale <= 0.0
+        {
+            return Err("Scene transform requires finite values and a positive scale".to_owned());
+        }
+
+        let translation_matrix = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [translation[0], translation[1], translation[2], 1.0],
+        ];
+        let scale_matrix = [
+            [scale, 0.0, 0.0, 0.0],
+            [0.0, scale, 0.0, 0.0],
+            [0.0, 0.0, scale, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let rotation_matrix =
+            euler_xyz_matrix(rotation_xyz[0], rotation_xyz[1], rotation_xyz[2]);
+
+        self.model_matrix = mat4_mul(
+            translation_matrix,
+            mat4_mul(rotation_matrix, scale_matrix),
+        );
+        queue.write_buffer(
+            &self.model_buffer,
+            0,
+            bytemuck::cast_slice(std::slice::from_ref(&self.model_matrix)),
+        );
+        Ok(())
+    }
+
     pub fn joint_index(&self, name: &str) -> Option<usize> {
         self.skeleton_pose.joint_index(name)
     }
@@ -133,6 +182,7 @@ impl GpuContext {
         &self,
         scene: &RenderScene,
         joint_palette_layout: &wgpu::BindGroupLayout,
+        model_layout: &wgpu::BindGroupLayout,
     ) -> Result<GpuScene, String> {
         self.validate_scene_for_upload(scene)?;
         let mut meshes = Vec::with_capacity(scene.meshes.len());
@@ -195,12 +245,33 @@ impl GpuContext {
             }],
         });
 
+
+        let model_matrix = identity_matrix();
+        let model_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("fresh-builder:model-transform"),
+                    contents: bytemuck::cast_slice(std::slice::from_ref(&model_matrix)),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        let model_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Fresh Builder Model Transform Bind Group"),
+            layout: model_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: model_buffer.as_entire_binding(),
+            }],
+        });
+
         Ok(GpuScene {
             meshes,
             joint_count: scene.joint_count(),
             skeleton_pose,
             joint_palette_buffer,
             joint_palette_bind_group,
+            model_buffer,
+            model_bind_group,
+            model_matrix,
         })
     }
 }
