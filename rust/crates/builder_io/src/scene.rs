@@ -24,7 +24,7 @@ pub struct SceneAsset {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportReadiness {
     Ready,
-    NeedsFbxDecoder,
+    NeedsFbxSkinning,
     Unsupported,
 }
 
@@ -32,7 +32,8 @@ impl SceneAsset {
     pub fn readiness(&self) -> ImportReadiness {
         match self.format {
             AssetFormat::Glb | AssetFormat::Gltf | AssetFormat::Stl => ImportReadiness::Ready,
-            AssetFormat::Fbx => ImportReadiness::NeedsFbxDecoder,
+            AssetFormat::Fbx if self.skinned => ImportReadiness::NeedsFbxSkinning,
+            AssetFormat::Fbx => ImportReadiness::Ready,
             AssetFormat::ThreeMf | AssetFormat::Unknown => ImportReadiness::Unsupported,
         }
     }
@@ -75,16 +76,19 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn fbx_is_kept_as_fbx_and_requires_decoder() {
+    fn fbx_readiness_distinguishes_static_from_rigged() {
         let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let path = std::env::temp_dir().join(format!("fresh-builder-{nonce}.fbx"));
         fs::write(&path, b"Kaydara FBX Binary").unwrap();
 
-        let scene = inspect_scene_file(&path, 0.001, true).unwrap();
-        assert_eq!(scene.format, AssetFormat::Fbx);
-        assert_eq!(scene.readiness(), ImportReadiness::NeedsFbxDecoder);
-        assert!(scene.skinned);
-        assert_eq!(scene.meters_per_unit, 0.001);
+        let rigged = inspect_scene_file(&path, 0.001, true).unwrap();
+        assert_eq!(rigged.format, AssetFormat::Fbx);
+        assert_eq!(rigged.readiness(), ImportReadiness::NeedsFbxSkinning);
+        assert!(rigged.skinned);
+        assert_eq!(rigged.meters_per_unit, 0.001);
+
+        let static_scene = inspect_scene_file(&path, 0.001, false).unwrap();
+        assert_eq!(static_scene.readiness(), ImportReadiness::Ready);
 
         fs::remove_file(path).unwrap();
     }
