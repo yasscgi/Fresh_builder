@@ -190,8 +190,8 @@ class _BuilderPageState extends State<BuilderPage> {
         false,
         status: nativeScene?.loadedToGpu == true
             ? 'Base character GPU ready'
-            : nativeScene?.readiness == 'needs_fbx_decoder'
-                ? 'Base character cached · FBX decoder pending'
+            : nativeScene?.readiness == 'needs_fbx_skinning'
+                ? 'Rigged FBX needs skinning support · use GLB for character'
                 : 'Base character ready',
       );
     } catch (error) {
@@ -760,8 +760,8 @@ class _BuilderPageState extends State<BuilderPage> {
         false,
         status: nativeScene?.loadedToGpu == true
             ? 'GPU scene ready'
-            : nativeScene?.readiness == 'needs_fbx_decoder'
-                ? 'FBX cached · decoder pending'
+            : nativeScene?.readiness == 'needs_fbx_skinning'
+                ? 'Rigged FBX needs skinning support · static FBX is supported'
                 : local.cacheHit
                     ? 'Loaded from cache'
                     : 'Asset ready',
