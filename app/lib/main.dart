@@ -651,7 +651,8 @@ class _BuilderPageState extends State<BuilderPage> {
               onFkAxisChanged: _updateFkAxis,
               onFkGestureEnd: () => unawaited(_commitFkGesture()),
               onFkGestureCancel: () => unawaited(_cancelFkGesture()),
-              viewportListenable: _nativeViewport,
+              viewportController: _nativeViewport,
+              sceneKey: _baseCharacterSceneKey,
               ikChains: resolveIkChains(
                 data: _cloudData,
                 jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
@@ -1067,7 +1068,8 @@ class _RigPanel extends StatelessWidget {
     required this.onFkAxisChanged,
     required this.onFkGestureEnd,
     required this.onFkGestureCancel,
-    required this.viewportListenable,
+    required this.viewportController,
+    required this.sceneKey,
     required this.ikChains,
   });
 
@@ -1080,7 +1082,8 @@ class _RigPanel extends StatelessWidget {
   final void Function(String axis, double value) onFkAxisChanged;
   final VoidCallback onFkGestureEnd;
   final VoidCallback onFkGestureCancel;
-  final Listenable viewportListenable;
+  final NativeViewportController viewportController;
+  final String sceneKey;
   final List<IkChainBinding> ikChains;
 
   @override
@@ -1119,7 +1122,7 @@ class _RigPanel extends StatelessWidget {
               ],
             ),
             child: ListenableBuilder(
-              listenable: Listenable.merge([workspace, rigController, viewportListenable]),
+              listenable: Listenable.merge([workspace, rigController, viewportController]),
               builder: (context, _) {
                 final mode = rigController.mode;
                 return Column(
@@ -1234,7 +1237,13 @@ class _RigPanel extends StatelessWidget {
                     ),
                     if (mode == BridgeRigMode.ik) ...[
                       const SizedBox(height: 14),
-                      _IkChainList(chains: ikChains),
+                      _IkEditor(
+                        chains: ikChains,
+                        rigController: rigController,
+                        viewportController: viewportController,
+                        workspace: workspace,
+                        sceneKey: sceneKey,
+                      ),
                     ],
                     if (mode == BridgeRigMode.fk) ...[
                       const SizedBox(height: 14),
@@ -1304,85 +1313,6 @@ class _RigPanel extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _IkChainList extends StatelessWidget {
-  const _IkChainList({required this.chains});
-
-  final List<IkChainBinding> chains;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    if (chains.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: colors.errorContainer.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Text(
-          'No valid IK chains found. Upload Rig V3 metadata or a supported Mixamo skeleton.',
-          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Text(
-              'IK chains',
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
-            ),
-            const Spacer(),
-            Text(
-              chains.every((chain) => chain.source == 'rig_v3')
-                  ? 'Rig V3'
-                  : 'Fallback',
-              style: TextStyle(
-                fontSize: 8,
-                fontWeight: FontWeight.w800,
-                color: colors.primary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 7),
-        for (final chain in chains)
-          Container(
-            margin: const EdgeInsets.only(bottom: 5),
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-            decoration: BoxDecoration(
-              color: colors.surfaceContainerHighest.withValues(alpha: 0.28),
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(color: Theme.of(context).dividerColor),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  chain.effector,
-                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${chain.upper} → ${chain.lower} → ${chain.end}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 7,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
     );
   }
 }
