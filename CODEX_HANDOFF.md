@@ -237,3 +237,9 @@ GitHub Actions has repeatedly returned jobs with `steps=null` and runner failure
 - Native Save Design now writes the same Design v5 snapshot locally and, when authenticated, inserts it into Supabase `saved_builder_designs` using the existing RLS-protected schema from freshstl-main.
 - Native Restore checks the latest authenticated cloud row only when its design payload has `format=fresh_builder_design` and `version=5`; otherwise it falls back to the local snapshot.
 - Existing web Builder V2 saved rows remain untouched and are not misinterpreted as Native Design v5.
+
+
+## Post-merge autosave and export preflight
+- Local Design v5 autosave is debounced (900 ms) after rig/hand changes, asset selection and committed asset transforms. Autosave failures are best-effort and non-fatal; explicit Save Design still reports errors.
+- Explicit Save Design stores local + authenticated Supabase `saved_builder_designs` copy.
+- STL/3MF export runs print validation first and blocks invalid triangle indices or empty geometry. Non-watertight topology is exported with clear warnings instead of silently claiming a clean model.
