@@ -84,6 +84,9 @@ final class BuilderDesignAutosaveController {
         viewport: viewport,
         rig: rig,
       );
+    }).catchError((Object _) {
+      // Autosave is best-effort and must never surface as an uncaught
+      // asynchronous exception. Explicit Save Design still reports errors.
     });
 
     _writeTail = next;
