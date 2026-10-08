@@ -650,6 +650,7 @@ class _BuilderPageState extends State<BuilderPage> {
               onFkAxisChanged: _updateFkAxis,
               onFkGestureEnd: () => unawaited(_commitFkGesture()),
               onFkGestureCancel: () => unawaited(_cancelFkGesture()),
+              viewportListenable: _nativeViewport,
             ),
           ),
       ],
@@ -1061,6 +1062,7 @@ class _RigPanel extends StatelessWidget {
     required this.onFkAxisChanged,
     required this.onFkGestureEnd,
     required this.onFkGestureCancel,
+    required this.viewportListenable,
   });
 
   final NativeRigController rigController;
@@ -1072,6 +1074,7 @@ class _RigPanel extends StatelessWidget {
   final void Function(String axis, double value) onFkAxisChanged;
   final VoidCallback onFkGestureEnd;
   final VoidCallback onFkGestureCancel;
+  final Listenable viewportListenable;
 
   @override
   Widget build(BuildContext context) {
@@ -1109,7 +1112,7 @@ class _RigPanel extends StatelessWidget {
               ],
             ),
             child: ListenableBuilder(
-              listenable: Listenable.merge([workspace, rigController]),
+              listenable: Listenable.merge([workspace, rigController, viewportListenable]),
               builder: (context, _) {
                 final mode = rigController.mode;
                 return Column(
