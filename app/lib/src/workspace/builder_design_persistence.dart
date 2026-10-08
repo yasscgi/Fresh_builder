@@ -207,6 +207,8 @@ final class BuilderDesignPersistence {
       boundaryEdges: report.boundaryEdges,
       nonManifoldEdges: report.nonManifoldEdges,
       invalidIndices: report.invalidIndices,
+      inconsistentWindingEdges: report.inconsistentWindingEdges,
+      connectedComponents: report.connectedComponents,
       sizeXmm: report.sizeXmm,
       sizeYmm: report.sizeYmm,
       sizeZmm: report.sizeZmm,
@@ -380,6 +382,8 @@ final class BuilderPrintValidationResult {
     required this.boundaryEdges,
     required this.nonManifoldEdges,
     required this.invalidIndices,
+    required this.inconsistentWindingEdges,
+    required this.connectedComponents,
     required this.sizeXmm,
     required this.sizeYmm,
     required this.sizeZmm,
@@ -392,6 +396,8 @@ final class BuilderPrintValidationResult {
   final int boundaryEdges;
   final int nonManifoldEdges;
   final int invalidIndices;
+  final int inconsistentWindingEdges;
+  final int connectedComponents;
   final double sizeXmm;
   final double sizeYmm;
   final double sizeZmm;
