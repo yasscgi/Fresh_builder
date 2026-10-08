@@ -231,3 +231,9 @@ GitHub Actions has repeatedly returned jobs with `steps=null` and runner failure
   - `scripts/bootstrap_android.sh`
   - `scripts/bootstrap_ios.sh`
 - CI includes Android and iOS mobile jobs, but hosted-runner failures may still block execution before steps.
+
+
+## Cloud Design v5 status
+- Native Save Design now writes the same Design v5 snapshot locally and, when authenticated, inserts it into Supabase `saved_builder_designs` using the existing RLS-protected schema from freshstl-main.
+- Native Restore checks the latest authenticated cloud row only when its design payload has `format=fresh_builder_design` and `version=5`; otherwise it falls back to the local snapshot.
+- Existing web Builder V2 saved rows remain untouched and are not misinterpreted as Native Design v5.
