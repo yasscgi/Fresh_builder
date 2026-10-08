@@ -59,6 +59,8 @@ class NativeViewportController extends ChangeNotifier {
       );
   NativeSceneTransform sceneTransform(String sceneKey) =>
       _sceneTransforms[sceneKey] ?? const NativeSceneTransform();
+  Map<String, NativeSceneTransform> get sceneTransformsSnapshot =>
+      Map<String, NativeSceneTransform>.unmodifiable(_sceneTransforms);
 
   Future<void> ensureInitialized({
     required double logicalWidth,
