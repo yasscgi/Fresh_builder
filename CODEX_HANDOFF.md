@@ -243,3 +243,26 @@ GitHub Actions has repeatedly returned jobs with `steps=null` and runner failure
 - Local Design v5 autosave is debounced (900 ms) after rig/hand changes, asset selection and committed asset transforms. Autosave failures are best-effort and non-fatal; explicit Save Design still reports errors.
 - Explicit Save Design stores local + authenticated Supabase `saved_builder_designs` copy.
 - STL/3MF export runs print validation first and blocks invalid triangle indices or empty geometry. Non-watertight topology is exported with clear warnings instead of silently claiming a clean model.
+
+
+### FBX-specific validation
+Run these checks before declaring FBX production-ready:
+- compile `builder_io` against `ufbx 0.11.5`;
+- test one static FBX;
+- test one Mixamo-style FBX with one skinned mesh;
+- verify joint names match Rig V3 / Mixamo resolver;
+- verify rest pose matches Blender;
+- rotate one FK bone and compare deformation;
+- move one IK effector and compare bend plane;
+- export posed FBX-imported character to STL and compare against viewport;
+- confirm multi-skinned FBX fails with an explicit supported-limit error rather than rendering corrupt geometry.
+
+Highest-risk FBX API points to verify locally:
+- `SpaceConversion::ModifyGeometry`;
+- `mesh.skin_deformers`;
+- `cluster.bone_node`;
+- `cluster.geometry_to_bone`;
+- `skin.vertices` / `skin.weights`;
+- `mesh.vertex_indices`;
+- `node.node_to_parent` / `node.node_to_world`;
+- `matrix_for_normals`, `transform_position`, `transform_direction`.
