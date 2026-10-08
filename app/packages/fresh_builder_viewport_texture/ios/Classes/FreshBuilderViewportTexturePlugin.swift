@@ -194,14 +194,15 @@ public final class FreshBuilderViewportTexturePlugin: NSObject, FlutterPlugin {
             return true
         }
 
-        if let captureSymbol = dlsym(
-            UnsafeMutableRawPointer(bitPattern: -2),
-            "fresh_builder_frame_capture_enabled"
-        ),
-        let copySymbol = dlsym(
-            UnsafeMutableRawPointer(bitPattern: -2),
-            "fresh_builder_copy_latest_frame"
-        ) {
+        if let mainHandle = dlopen(nil, RTLD_NOW),
+           let captureSymbol = dlsym(
+               mainHandle,
+               "fresh_builder_frame_capture_enabled"
+           ),
+           let copySymbol = dlsym(
+               mainHandle,
+               "fresh_builder_copy_latest_frame"
+           ) {
             captureEnabled = unsafeBitCast(
                 captureSymbol,
                 to: CaptureEnabledFn.self
