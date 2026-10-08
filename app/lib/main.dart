@@ -181,10 +181,23 @@ class _BuilderPageState extends State<BuilderPage> {
   Future<void> _setHandOpen(bool open) async {
     await _nativeRig.setHandOpen(open);
     if (_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
-      await _nativeViewport.setSceneHandOpen(
+      final affected = await _nativeViewport.setSceneHandOpen(
         sceneKey: _baseCharacterSceneKey,
         openAmount: open ? 1.0 : 0.0,
       );
+      if (affected == 0) {
+        _workspace.setBusy(
+          false,
+          status: 'Hand pose saved · no Mixamo finger joints detected',
+        );
+      } else if (affected != null) {
+        _workspace.setBusy(
+          false,
+          status: open
+              ? 'Hands opened · $affected finger joints'
+              : 'Hands closed · $affected finger joints',
+        );
+      }
     }
   }
 
