@@ -461,6 +461,76 @@ impl NativeViewportSession {
         Ok(())
     }
 
+    pub fn set_scene_two_bone_ik(
+        &self,
+        scene_key: String,
+        upper: String,
+        lower: String,
+        end: String,
+        target: BridgeVec3,
+        pole: BridgeVec3,
+    ) -> Result<BridgeIkResult, String> {
+        if upper.trim().is_empty() || lower.trim().is_empty() || end.trim().is_empty() {
+            return Err("IK chain requires upper, lower and end joint names".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        let result = {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+
+            let upper_index = scene
+                .joint_index(&upper)
+                .ok_or_else(|| format!("Upper IK joint {upper} was not found in scene {scene_key}"))?;
+            let lower_index = scene
+                .joint_index(&lower)
+                .ok_or_else(|| format!("Lower IK joint {lower} was not found in scene {scene_key}"))?;
+            let end_index = scene
+                .joint_index(&end)
+                .ok_or_else(|| format!("End IK joint {end} was not found in scene {scene_key}"))?;
+
+            let root_position = scene.joint_world_position(upper_index)?;
+            let mid_position = scene.joint_world_position(lower_index)?;
+            let end_position = scene.joint_world_position(end_index)?;
+
+            let solved = solve_two_bone_ik(TwoBoneIkInput {
+                root: Vec3::new(root_position[0], root_position[1], root_position[2]),
+                mid: Vec3::new(mid_position[0], mid_position[1], mid_position[2]),
+                end: Vec3::new(end_position[0], end_position[1], end_position[2]),
+                target: target.into(),
+                pole: pole.into(),
+            })
+            .ok_or_else(|| "IK chain is collapsed or cannot be solved".to_owned())?;
+
+            renderer.apply_scene_two_bone_solution(
+                scene,
+                upper_index,
+                lower_index,
+                end_index,
+                [solved.mid.x, solved.mid.y, solved.mid.z],
+                [solved.end.x, solved.end.y, solved.end.z],
+            )?;
+
+            BridgeIkResult {
+                mid: solved.mid.into(),
+                end: solved.end.into(),
+                upper_length: solved.upper_length,
+                lower_length: solved.lower_length,
+                clamped_distance: solved.clamped_distance,
+                reached_target: solved.reached_target,
+            }
+        };
+
+        inner.render_frame();
+        Ok(result)
+    }
+
     pub fn reset_scene_pose(&self, scene_key: String) -> Result<(), String> {
         let mut inner = self.lock_inner()?;
         {
