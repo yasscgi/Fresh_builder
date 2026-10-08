@@ -1,6 +1,6 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
 use builder_io::{
-    decode_fbx_scene, decode_gltf_scene, detect_asset_format, inspect_scene_file, validate_print_scene,
+    decode_fbx_scene, decode_gltf_scene, decode_stl_scene, detect_asset_format, inspect_scene_file, validate_print_scene,
     write_3mf, write_binary_stl, AssetFormat, ImportReadiness,
 };
 use std::{collections::BTreeMap, sync::Mutex};
@@ -284,6 +284,7 @@ pub fn decode_local_scene(
             decode_gltf_scene(&path, meters_per_unit)?
         }
         AssetFormat::Fbx => decode_fbx_scene(&path)?,
+        AssetFormat::Stl => decode_stl_scene(&path, meters_per_unit)?,
         other => {
             return Err(format!(
                 "Native scene decoding is not implemented for {other:?} yet"
@@ -449,6 +450,28 @@ impl NativeViewportSession {
                 inner.render_frame();
                 Ok(status)
             },
+            AssetFormat::Stl => {
+                let scene = decode_stl_scene(&path, meters_per_unit)?;
+                let status = NativeSceneStatus {
+                    scene_key: scene_key.clone(),
+                    path,
+                    format: format_name,
+                    readiness: "ready_stl".to_owned(),
+                    loaded_to_gpu: true,
+                    mesh_count: scene.meshes.len() as u32,
+                    vertex_count: scene.vertex_count() as u64,
+                    index_count: scene.index_count() as u64,
+                    joint_count: 0,
+                    skinned_mesh_count: 0,
+                };
+
+                let mut inner = self.lock_inner()?;
+                let gpu_scene = inner.renderer.upload_scene(&scene)?;
+                inner.scenes.insert(scene_key, gpu_scene);
+                inner.render_frame();
+                Ok(status)
+            },
+
             _ => Ok(NativeSceneStatus {
                 scene_key,
                 path,
