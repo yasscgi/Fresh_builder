@@ -247,6 +247,89 @@ class _BuilderPageState extends State<BuilderPage> {
     );
   }
 
+  Future<void> _toggleMobileRigEditor(BridgeRigMode mode) async {
+    final next = _nativeRig.mode == mode ? BridgeRigMode.none : mode;
+    await _setRigMode(next);
+    if (!mounted || next == BridgeRigMode.none) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).colorScheme;
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 14,
+              right: 14,
+              bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 14,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.72,
+              ),
+              child: SingleChildScrollView(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: ListenableBuilder(
+                      listenable: Listenable.merge([
+                        _nativeRig,
+                        _nativeViewport,
+                        _workspace,
+                      ]),
+                      builder: (context, _) {
+                        if (next == BridgeRigMode.ik) {
+                          return _IkEditor(
+                            chains: resolveIkChains(
+                              data: _cloudData,
+                              jointNames: _nativeViewport.sceneJointNames(
+                                _baseCharacterSceneKey,
+                              ),
+                            ),
+                            rigController: _nativeRig,
+                            viewportController: _nativeViewport,
+                            workspace: _workspace,
+                            sceneKey: _baseCharacterSceneKey,
+                          );
+                        }
+                        return _FkEditor(
+                          jointNames: _nativeViewport.sceneJointNames(
+                            _baseCharacterSceneKey,
+                          ),
+                          selectedBone: _nativeRig.selectedBone,
+                          rotation: _nativeRig.selectedFkRotation,
+                          onBoneSelected: (bone) =>
+                              unawaited(_selectFkBone(bone)),
+                          onGestureStart: () =>
+                              unawaited(_beginFkGesture()),
+                          onAxisChanged: _updateFkAxis,
+                          onGestureEnd: () =>
+                              unawaited(_commitFkGesture()),
+                          onGestureCancel: () =>
+                              unawaited(_cancelFkGesture()),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (_workspace.navigationLocked) {
+      await _cancelFkGesture();
+    }
+  }
+
   @override
   void dispose() {
     _assetCache?.dispose();
@@ -719,19 +802,11 @@ class _BuilderPageState extends State<BuilderPage> {
               fkActive: _nativeRig.mode == BridgeRigMode.fk,
               handOpen: _nativeRig.handOpen,
               onIk: () => unawaited(
-                          _setRigMode(
-                            _nativeRig.mode == BridgeRigMode.ik
-                                ? BridgeRigMode.none
-                                : BridgeRigMode.ik,
-                          ),
-                        ),
+                _toggleMobileRigEditor(BridgeRigMode.ik),
+              ),
               onFk: () => unawaited(
-                          _setRigMode(
-                            _nativeRig.mode == BridgeRigMode.fk
-                                ? BridgeRigMode.none
-                                : BridgeRigMode.fk,
-                          ),
-                        ),
+                _toggleMobileRigEditor(BridgeRigMode.fk),
+              ),
               onOpenHand: () => unawaited(_setHandOpen(true)),
                         onCloseHand: () => unawaited(_setHandOpen(false)),
             ),
