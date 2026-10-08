@@ -1,5 +1,6 @@
 mod asset;
 mod cache;
+mod fbx;
 mod gltf;
 mod scene;
 mod stl;
@@ -8,6 +9,7 @@ mod validation;
 
 pub use asset::{detect_asset_format, AssetFormat, AssetSource};
 pub use cache::{AssetCache, CachedAsset};
+pub use fbx::decode_fbx_scene;
 pub use gltf::decode_gltf_scene;
 pub use scene::{inspect_scene_file, ImportReadiness, SceneAsset, SceneBounds};
 
