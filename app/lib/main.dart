@@ -1156,6 +1156,7 @@ class _AssetViewportGizmoState extends State<_AssetViewportGizmo> {
         _pendingMoveX += details.delta.dx * scaleX;
         _pendingMoveY += details.delta.dy * scaleY;
         _ensureMoveFlush();
+        return;
       case BuilderTool.rotate:
         widget.onChanged(
           base.copyWith(
@@ -1163,13 +1164,15 @@ class _AssetViewportGizmoState extends State<_AssetViewportGizmo> {
             ry: base.ry + _dragX * 0.012,
           ),
         );
+        return;
       case BuilderTool.scale:
         final factor = math.exp(-_dragY * 0.008);
         widget.onChanged(
           base.copyWith(
-            scale: (base.scale * factor).clamp(0.05, 8.0),
+            scale: (base.scale * factor).clamp(0.05, 8.0).toDouble(),
           ),
         );
+        return;
       case BuilderTool.select:
         break;
     }
@@ -1505,7 +1508,7 @@ class _TransformAxes extends StatelessWidget {
                 child: Slider(
                   min: min,
                   max: max,
-                  value: values[axis].clamp(min, max),
+                  value: values[axis].clamp(min, max).toDouble(),
                   onChangeStart: (_) => onStart(),
                   onChanged: (value) => onChanged(axis, value),
                   onChangeEnd: (_) => onEnd(),
@@ -1560,7 +1563,7 @@ class _TransformScale extends StatelessWidget {
               child: Slider(
                 min: 0.25,
                 max: 3.0,
-                value: value.clamp(0.25, 3.0),
+                value: value.clamp(0.25, 3.0).toDouble(),
                 onChangeStart: (_) => onStart(),
                 onChanged: onChanged,
                 onChangeEnd: (_) => onEnd(),
@@ -2659,7 +2662,7 @@ class _FkAxisSlider extends StatelessWidget {
           child: Slider(
             min: minValue,
             max: maxValue,
-            value: value.clamp(minValue, maxValue),
+            value: value.clamp(minValue, maxValue).toDouble(),
             onChangeStart: (_) => onStart(),
             onChanged: onChanged,
             onChangeEnd: (_) => onEnd(),
