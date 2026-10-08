@@ -195,6 +195,8 @@ class _BuilderPageState extends State<BuilderPage> {
   void _updateFkAxis(String axis, double value) {
     final bone = _nativeRig.selectedBone;
     if (bone == null || !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) return;
+    final constraint = resolveRigBoneConstraints(data: _cloudData)[bone];
+    if (constraint != null && !constraint.allows(axis)) return;
     final current = _nativeRig.selectedFkRotation;
     _nativeRig.updateFkRotation(
       viewport: _nativeViewport,
@@ -1849,12 +1851,42 @@ class _FkEditor extends StatelessWidget {
         ),
         if (selected != null) ...[
           const SizedBox(height: 10),
-          _FkAxisSlider(axis: 'X', value: rotation?.x ?? 0, onStart: onGestureStart,
-            onChanged: (value) => onAxisChanged('x', value), onEnd: onGestureEnd),
-          _FkAxisSlider(axis: 'Y', value: rotation?.y ?? 0, onStart: onGestureStart,
-            onChanged: (value) => onAxisChanged('y', value), onEnd: onGestureEnd),
-          _FkAxisSlider(axis: 'Z', value: rotation?.z ?? 0, onStart: onGestureStart,
-            onChanged: (value) => onAxisChanged('z', value), onEnd: onGestureEnd),
+          if (boneConstraints[selected]?.hingeAxis != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                'Hinge axis · ${allowed.single.toUpperCase()}',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+          if (allowed.contains('x'))
+            _FkAxisSlider(
+              axis: 'X',
+              value: rotation?.x ?? 0,
+              onStart: onGestureStart,
+              onChanged: (value) => onAxisChanged('x', value),
+              onEnd: onGestureEnd,
+            ),
+          if (allowed.contains('y'))
+            _FkAxisSlider(
+              axis: 'Y',
+              value: rotation?.y ?? 0,
+              onStart: onGestureStart,
+              onChanged: (value) => onAxisChanged('y', value),
+              onEnd: onGestureEnd,
+            ),
+          if (allowed.contains('z'))
+            _FkAxisSlider(
+              axis: 'Z',
+              value: rotation?.z ?? 0,
+              onStart: onGestureStart,
+              onChanged: (value) => onAxisChanged('z', value),
+              onEnd: onGestureEnd,
+            ),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
