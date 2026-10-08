@@ -42,6 +42,45 @@ void main() {
     expect(chains.single.end, 'CustomFoot.L');
   });
 
+  test('maps Rig V3 semantic chain bones to authored source names', () {
+    final data = BuilderCloudData(
+      config: BuilderCloudConfig(
+        productId: 'p2',
+        mode: 'character',
+        config: {
+          'rig': {
+            'format': 'freshstl_mixamo_rig_v3',
+            'bones': [
+              {'semantic': 'LeftUpperLeg', 'source_name': 'mixamorig:LeftUpLeg'},
+              {'semantic': 'LeftLowerLeg', 'source_name': 'mixamorig:LeftLeg'},
+              {'semantic': 'LeftFoot', 'source_name': 'mixamorig:LeftFoot'},
+            ],
+            'chains': [
+              {
+                'effector': 'LeftFoot',
+                'upper': 'LeftUpperLeg',
+                'lower': 'LeftLowerLeg',
+                'end': 'LeftFoot',
+                'pole_direction': [0, 0, 1],
+              },
+            ],
+          },
+        },
+      ),
+      categories: const [],
+      assets: const [],
+      articulatedChains: const [],
+      jointStandards: const [],
+      surfaceZones: const [],
+    );
+
+    final chains = resolveIkChains(data: data, jointNames: const []);
+    expect(chains, hasLength(1));
+    expect(chains.single.upper, 'mixamorig:LeftUpLeg');
+    expect(chains.single.lower, 'mixamorig:LeftLeg');
+    expect(chains.single.end, 'mixamorig:LeftFoot');
+  });
+
   test('infers four standard Mixamo chains when metadata is absent', () {
     const joints = [
       'mixamorig:LeftArm',
