@@ -22,6 +22,12 @@ class NativeViewportController extends ChangeNotifier {
       <String, List<NativeJointScreenPoint>>{};
   final Map<String, NativeSceneTransform> _sceneTransforms =
       <String, NativeSceneTransform>{};
+  final Map<String, List<NativeSceneTransform>> _transformUndo =
+      <String, List<NativeSceneTransform>>{};
+  final Map<String, List<NativeSceneTransform>> _transformRedo =
+      <String, List<NativeSceneTransform>>{};
+  final Map<String, NativeSceneTransform> _transformGestureOrigin =
+      <String, NativeSceneTransform>{};
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -257,6 +263,9 @@ class NativeViewportController extends ChangeNotifier {
         _jointNamesByScene.remove(sceneKey);
         _jointScreenPointsByScene.remove(sceneKey);
         _sceneTransforms.remove(sceneKey);
+        _transformUndo.remove(sceneKey);
+        _transformRedo.remove(sceneKey);
+        _transformGestureOrigin.remove(sceneKey);
       }
       _sceneError = null;
       await _markTextureFrame();
@@ -364,6 +373,9 @@ class NativeViewportController extends ChangeNotifier {
     _jointNamesByScene.clear();
     _jointScreenPointsByScene.clear();
     _sceneTransforms.clear();
+    _transformUndo.clear();
+    _transformRedo.clear();
+    _transformGestureOrigin.clear();
     _sceneStatus = null;
     _sceneError = null;
     final session = _session;
@@ -376,6 +388,53 @@ class NativeViewportController extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  void beginSceneTransformGesture(String sceneKey) {
+    _transformGestureOrigin.putIfAbsent(
+      sceneKey,
+      () => sceneTransform(sceneKey),
+    );
+  }
+
+  Future<void> commitSceneTransformGesture(String sceneKey) async {
+    final origin = _transformGestureOrigin.remove(sceneKey);
+    if (origin == null) return;
+    final current = sceneTransform(sceneKey);
+    if (origin == current) return;
+    (_transformUndo[sceneKey] ??= <NativeSceneTransform>[]).add(origin);
+    _transformRedo[sceneKey]?.clear();
+    notifyListeners();
+  }
+
+  Future<void> cancelSceneTransformGesture(String sceneKey) async {
+    final origin = _transformGestureOrigin.remove(sceneKey);
+    if (origin == null) return;
+    await setSceneTransform(sceneKey: sceneKey, transform: origin);
+  }
+
+  bool canUndoSceneTransform(String sceneKey) =>
+      _transformUndo[sceneKey]?.isNotEmpty == true;
+
+  bool canRedoSceneTransform(String sceneKey) =>
+      _transformRedo[sceneKey]?.isNotEmpty == true;
+
+  Future<void> undoSceneTransform(String sceneKey) async {
+    final stack = _transformUndo[sceneKey];
+    if (stack == null || stack.isEmpty) return;
+    final previous = stack.removeLast();
+    final current = sceneTransform(sceneKey);
+    (_transformRedo[sceneKey] ??= <NativeSceneTransform>[]).add(current);
+    await setSceneTransform(sceneKey: sceneKey, transform: previous);
+  }
+
+  Future<void> redoSceneTransform(String sceneKey) async {
+    final stack = _transformRedo[sceneKey];
+    if (stack == null || stack.isEmpty) return;
+    final next = stack.removeLast();
+    final current = sceneTransform(sceneKey);
+    (_transformUndo[sceneKey] ??= <NativeSceneTransform>[]).add(current);
+    await setSceneTransform(sceneKey: sceneKey, transform: next);
   }
 
   Future<void> setSceneTransform({
@@ -616,6 +675,20 @@ class NativeSceneTransform {
   final double ry;
   final double rz;
   final double scale;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NativeSceneTransform &&
+      other.tx == tx &&
+      other.ty == ty &&
+      other.tz == tz &&
+      other.rx == rx &&
+      other.ry == ry &&
+      other.rz == rz &&
+      other.scale == scale;
+
+  @override
+  int get hashCode => Object.hash(tx, ty, tz, rx, ry, rz, scale);
 
   NativeSceneTransform copyWith({
     double? tx,
