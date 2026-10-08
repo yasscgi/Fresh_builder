@@ -84,6 +84,9 @@ jobs:
         run: |
           export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
           cd app
+          if [ ! -d hook ] && [ ! -d rust_builder ]; then
+            flutter_rust_bridge_codegen integrate --integration-backend native-assets
+          fi
           flutter_rust_bridge_codegen generate
 
       - name: Test Flutter-facing Rust crate
@@ -151,7 +154,11 @@ jobs:
       - name: Generate Flutter/Rust bridge
         shell: pwsh
         working-directory: app
-        run: flutter_rust_bridge_codegen generate
+        run: |
+          if (-not (Test-Path "hook") -and -not (Test-Path "rust_builder")) {
+            flutter_rust_bridge_codegen integrate --integration-backend native-assets
+          }
+          flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
         shell: pwsh
@@ -219,7 +226,11 @@ jobs:
       - name: Generate Flutter/Rust bridge
         shell: bash
         working-directory: app
-        run: flutter_rust_bridge_codegen generate
+        run: |
+          if (-not (Test-Path "hook") -and -not (Test-Path "rust_builder")) {
+            flutter_rust_bridge_codegen integrate --integration-backend native-assets
+          }
+          flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
         shell: bash
@@ -281,7 +292,11 @@ jobs:
       - name: Generate Flutter/Rust bridge
         shell: bash
         working-directory: app
-        run: flutter_rust_bridge_codegen generate
+        run: |
+          if (-not (Test-Path "hook") -and -not (Test-Path "rust_builder")) {
+            flutter_rust_bridge_codegen integrate --integration-backend native-assets
+          }
+          flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
         shell: bash
