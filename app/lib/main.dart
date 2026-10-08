@@ -185,6 +185,9 @@ class _BuilderPageState extends State<BuilderPage> {
         sceneKey: _baseCharacterSceneKey,
         openAmount: open ? 1.0 : 0.0,
       );
+      await _nativeViewport.refreshJointScreenPoints(
+        _baseCharacterSceneKey,
+      );
       if (affected == 0) {
         _workspace.setBusy(
           false,
@@ -231,6 +234,9 @@ class _BuilderPageState extends State<BuilderPage> {
   Future<void> _commitFkGesture() async {
     try {
       await _nativeRig.commitGesture();
+      await _nativeViewport.refreshJointScreenPoints(
+        _baseCharacterSceneKey,
+      );
     } finally {
       _workspace.commitPoseGesture();
     }
@@ -1603,6 +1609,9 @@ class _IkEditorState extends State<_IkEditor> {
     final base = _baseTarget;
     try {
       await widget.rigController.commitGesture();
+      await widget.viewportController.refreshJointScreenPoints(
+        widget.sceneKey,
+      );
       if (mounted && base != null) {
         setState(() {
           _baseTarget = (
@@ -2388,6 +2397,9 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
     await _flushPendingDrag();
     try {
       await widget.rigController.commitGesture();
+      await widget.nativeController.refreshJointScreenPoints(
+        widget.sceneKey,
+      );
     } finally {
       widget.workspaceController.commitPoseGesture();
       _activeChain = null;
