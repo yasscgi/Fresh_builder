@@ -22,7 +22,7 @@ final class BuilderDesignCloudRepository {
         ? 'My Design'
         : name.trim().substring(
             0,
-            name.trim().length.clamp(0, 80),
+            name.trim().length.clamp(0, 80).toInt(),
           );
 
     final row = await _client
@@ -72,7 +72,7 @@ final class BuilderDesignCloudRepository {
         .eq('user_id', userId)
         .eq('product_id', productId)
         .order('updated_at', ascending: false)
-        .limit(limit.clamp(1, 100));
+        .limit(limit.clamp(1, 100).toInt());
 
     return [
       for (final raw in rows)
