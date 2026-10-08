@@ -626,6 +626,7 @@ class _BuilderPageState extends State<BuilderPage> {
                     child: BuilderViewport(
                     nativeController: _nativeViewport,
                     rigController: _nativeRig,
+                    workspaceController: _workspace,
                     rigSceneKey: _baseCharacterSceneKey,
                     ikChains: resolveIkChains(
                       data: _cloudData,
@@ -762,6 +763,7 @@ class _BuilderPageState extends State<BuilderPage> {
             child: BuilderViewport(
             nativeController: _nativeViewport,
             rigController: _nativeRig,
+            workspaceController: _workspace,
             rigSceneKey: _baseCharacterSceneKey,
             ikChains: resolveIkChains(
               data: _cloudData,
@@ -2005,6 +2007,7 @@ class BuilderViewport extends StatelessWidget {
     super.key,
     required this.nativeController,
     required this.rigController,
+    required this.workspaceController,
     required this.rigSceneKey,
     required this.ikChains,
     this.productName,
@@ -2020,6 +2023,7 @@ class BuilderViewport extends StatelessWidget {
 
   final NativeViewportController nativeController;
   final NativeRigController rigController;
+  final BuilderWorkspaceController workspaceController;
   final String rigSceneKey;
   final List<IkChainBinding> ikChains;
   final String? productName;
@@ -2077,6 +2081,7 @@ class BuilderViewport extends StatelessWidget {
                   _RigIkOverlay(
                     nativeController: nativeController,
                     rigController: rigController,
+                    workspaceController: workspaceController,
                     sceneKey: rigSceneKey,
                     chains: ikChains,
                   ),
@@ -2116,60 +2121,251 @@ class BuilderViewport extends StatelessWidget {
   }
 }
 
-class _RigIkOverlay extends StatelessWidget {
+class _RigIkOverlay extends StatefulWidget {
   const _RigIkOverlay({
     required this.nativeController,
     required this.rigController,
+    required this.workspaceController,
     required this.sceneKey,
     required this.chains,
   });
 
   final NativeViewportController nativeController;
   final NativeRigController rigController;
+  final BuilderWorkspaceController workspaceController;
   final String sceneKey;
   final List<IkChainBinding> chains;
 
   @override
+  State<_RigIkOverlay> createState() => _RigIkOverlayState();
+}
+
+class _RigIkOverlayState extends State<_RigIkOverlay> {
+  IkChainBinding? _activeChain;
+  ({double x, double y, double z})? _target;
+  ({double x, double y, double z})? _pole;
+  double _pendingDx = 0;
+  double _pendingDy = 0;
+  Future<void>? _dragFlush;
+
+  Future<void> _startDrag(IkChainBinding chain) async {
+    _pendingDx = 0;
+    _pendingDy = 0;
+    _activeChain = chain;
+
+    await widget.rigController.selectEffector(chain.effector);
+    widget.workspaceController.beginPoseGesture();
+    await widget.rigController.beginGesture();
+
+    final upper = await widget.nativeController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.upper,
+    );
+    final lower = await widget.nativeController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.lower,
+    );
+    final end = await widget.nativeController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.end,
+    );
+
+    if (!mounted || upper == null || lower == null || end == null) {
+      await _cancelDrag();
+      return;
+    }
+
+    final upperLength = _distance3(upper, lower);
+    final lowerLength = _distance3(lower, end);
+    final reach = math.max(upperLength + lowerLength, 0.001);
+    final direction = _normalizedPole(chain.poleDirection);
+
+    _target = end;
+    _pole = (
+      x: upper.x + direction.$1 * reach,
+      y: upper.y + direction.$2 * reach,
+      z: upper.z + direction.$3 * reach,
+    );
+  }
+
+  void _queueDrag(Offset logicalDelta, Size logicalSize) {
+    final chain = _activeChain;
+    if (chain == null || _target == null || _pole == null) return;
+    if (logicalSize.width <= 0 || logicalSize.height <= 0) return;
+
+    final scaleX = widget.nativeController.physicalWidth / logicalSize.width;
+    final scaleY = widget.nativeController.physicalHeight / logicalSize.height;
+    _pendingDx += logicalDelta.dx * scaleX;
+    _pendingDy += logicalDelta.dy * scaleY;
+
+    if (_dragFlush == null) {
+      final future = _flushDrag();
+      _dragFlush = future;
+      unawaited(
+        future.whenComplete(() {
+          _dragFlush = null;
+          if (_pendingDx.abs() > 0.001 || _pendingDy.abs() > 0.001) {
+            _queueDrag(Offset.zero, logicalSize);
+          }
+        }),
+      );
+    }
+  }
+
+  Future<void> _flushDrag() async {
+    while (_activeChain != null &&
+        (_pendingDx.abs() > 0.001 || _pendingDy.abs() > 0.001)) {
+      final chain = _activeChain!;
+      final target = _target;
+      final pole = _pole;
+      if (target == null || pole == null) return;
+
+      final dx = _pendingDx;
+      final dy = _pendingDy;
+      _pendingDx = 0;
+      _pendingDy = 0;
+
+      final worldDelta =
+          await widget.nativeController.sceneJointScreenDragDelta(
+        sceneKey: widget.sceneKey,
+        bone: chain.end,
+        deltaX: dx,
+        deltaY: dy,
+      );
+      if (worldDelta == null || _activeChain != chain) continue;
+
+      final nextTarget = (
+        x: target.x + worldDelta.x,
+        y: target.y + worldDelta.y,
+        z: target.z + worldDelta.z,
+      );
+      _target = nextTarget;
+
+      widget.rigController.updateIkTarget(
+        viewport: widget.nativeController,
+        sceneKey: widget.sceneKey,
+        effector: chain.effector,
+        upper: chain.upper,
+        lower: chain.lower,
+        end: chain.end,
+        targetX: nextTarget.x,
+        targetY: nextTarget.y,
+        targetZ: nextTarget.z,
+        poleX: pole.x,
+        poleY: pole.y,
+        poleZ: pole.z,
+      );
+    }
+  }
+
+  Future<void> _endDrag() async {
+    await _dragFlush;
+    try {
+      await widget.rigController.commitGesture();
+    } finally {
+      widget.workspaceController.commitPoseGesture();
+      _activeChain = null;
+      _target = null;
+      _pole = null;
+      _pendingDx = 0;
+      _pendingDy = 0;
+    }
+  }
+
+  Future<void> _cancelDrag() async {
+    _pendingDx = 0;
+    _pendingDy = 0;
+    await _dragFlush;
+    try {
+      await widget.rigController.cancelGesture(
+        viewport: widget.nativeController,
+        sceneKey: widget.sceneKey,
+      );
+    } finally {
+      widget.workspaceController.cancelPoseGesture();
+      _activeChain = null;
+      _target = null;
+      _pole = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (widget.workspaceController.navigationLocked) {
+      widget.workspaceController.cancelPoseGesture();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (chains.isEmpty ||
-        nativeController.physicalWidth <= 0 ||
-        nativeController.physicalHeight <= 0) {
+    if (widget.chains.isEmpty ||
+        widget.nativeController.physicalWidth <= 0 ||
+        widget.nativeController.physicalHeight <= 0) {
       return const SizedBox.shrink();
     }
 
     final byBone = <String, NativeJointScreenPoint>{
-      for (final point in nativeController.sceneJointScreenPoints(sceneKey))
+      for (final point
+          in widget.nativeController.sceneJointScreenPoints(widget.sceneKey))
         if (point.visible) point.bone: point,
     };
     final colors = Theme.of(context).colorScheme;
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final logicalSize = Size(
+          constraints.maxWidth,
+          constraints.maxHeight,
+        );
         final scaleX =
-            constraints.maxWidth / nativeController.physicalWidth;
+            constraints.maxWidth / widget.nativeController.physicalWidth;
         final scaleY =
-            constraints.maxHeight / nativeController.physicalHeight;
+            constraints.maxHeight / widget.nativeController.physicalHeight;
 
         return Stack(
           fit: StackFit.expand,
           children: [
-            for (final chain in chains)
-              if (byBone[chain.end] case final point?)
+            for (final chain in widget.chains)
+              if (byBone[chain.end] != null)
                 _IkEffectorHandle(
                   label: chain.effector,
-                  x: point.x * scaleX,
-                  y: point.y * scaleY,
+                  x: byBone[chain.end]!.x * scaleX,
+                  y: byBone[chain.end]!.y * scaleY,
                   selected:
-                      rigController.selectedEffector == chain.effector,
+                      widget.rigController.selectedEffector == chain.effector,
                   accent: colors.primary,
                   onTap: () => unawaited(
-                    rigController.selectEffector(chain.effector),
+                    widget.rigController.selectEffector(chain.effector),
                   ),
+                  onPanStart: () => unawaited(_startDrag(chain)),
+                  onPanUpdate: (delta) => _queueDrag(delta, logicalSize),
+                  onPanEnd: () => unawaited(_endDrag()),
+                  onPanCancel: () => unawaited(_cancelDrag()),
                 ),
           ],
         );
       },
     );
+  }
+
+  double _distance3(
+    ({double x, double y, double z}) a,
+    ({double x, double y, double z}) b,
+  ) {
+    final dx = a.x - b.x;
+    final dy = a.y - b.y;
+    final dz = a.z - b.z;
+    return math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  (double, double, double) _normalizedPole(List<double> value) {
+    final x = value.isNotEmpty ? value[0] : 0.0;
+    final y = value.length > 1 ? value[1] : 0.0;
+    final z = value.length > 2 ? value[2] : 1.0;
+    final length = math.sqrt(x * x + y * y + z * z);
+    if (!length.isFinite || length < 1.0e-8) return (0.0, 0.0, 1.0);
+    return (x / length, y / length, z / length);
   }
 }
 
@@ -2181,6 +2377,10 @@ class _IkEffectorHandle extends StatelessWidget {
     required this.selected,
     required this.accent,
     required this.onTap,
+    required this.onPanStart,
+    required this.onPanUpdate,
+    required this.onPanEnd,
+    required this.onPanCancel,
   });
 
   final String label;
@@ -2189,20 +2389,28 @@ class _IkEffectorHandle extends StatelessWidget {
   final bool selected;
   final Color accent;
   final VoidCallback onTap;
+  final VoidCallback onPanStart;
+  final ValueChanged<Offset> onPanUpdate;
+  final VoidCallback onPanEnd;
+  final VoidCallback onPanCancel;
 
   @override
   Widget build(BuildContext context) {
-    final size = selected ? 26.0 : 21.0;
+    final size = selected ? 28.0 : 23.0;
     return Positioned(
       left: x - size / 2,
       top: y - size / 2,
       width: size,
       height: size,
       child: Tooltip(
-        message: label,
+        message: '$label · drag',
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
+          onPanStart: (_) => onPanStart(),
+          onPanUpdate: (details) => onPanUpdate(details.delta),
+          onPanEnd: (_) => onPanEnd(),
+          onPanCancel: onPanCancel,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
             decoration: BoxDecoration(
@@ -2223,7 +2431,7 @@ class _IkEffectorHandle extends StatelessWidget {
             ),
             child: Icon(
               Icons.open_with_rounded,
-              size: selected ? 14 : 12,
+              size: selected ? 15 : 12,
               color: selected ? Colors.white : accent,
             ),
           ),
