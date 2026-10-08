@@ -32,9 +32,9 @@ pub fn encode_binary_stl(scene: &RenderScene) -> Result<Vec<u8>, String> {
 
     for mesh in &scene.meshes {
         for triangle in mesh.indices.chunks_exact(3) {
-            let a = vertex_position(mesh, triangle[0])?;
-            let b = vertex_position(mesh, triangle[1])?;
-            let c = vertex_position(mesh, triangle[2])?;
+            let a = meters_to_millimeters(vertex_position(mesh, triangle[0])?);
+            let b = meters_to_millimeters(vertex_position(mesh, triangle[1])?);
+            let c = meters_to_millimeters(vertex_position(mesh, triangle[2])?);
             let normal = face_normal(a, b, c);
 
             push_vec3(&mut bytes, normal);
@@ -70,6 +70,10 @@ fn vertex_position(
                 mesh.name, index
             )
         })
+}
+
+fn meters_to_millimeters(value: [f32; 3]) -> [f32; 3] {
+    [value[0] * 1000.0, value[1] * 1000.0, value[2] * 1000.0]
 }
 
 fn push_vec3(bytes: &mut Vec<u8>, value: [f32; 3]) {
@@ -119,6 +123,27 @@ mod tests {
         let bytes = encode_binary_stl(&scene).unwrap();
         assert_eq!(bytes.len(), 134);
         assert_eq!(u32::from_le_bytes(bytes[80..84].try_into().unwrap()), 1);
+    }
+
+    #[test]
+    fn exports_engine_meters_as_stl_millimeters() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "unit".into(),
+                vertices: vec![
+                    RenderVertex { position: [0.1, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [0.0, 0.1, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [0.0, 0.0, 0.1], ..RenderVertex::default() },
+                ],
+                indices: vec![0, 1, 2],
+                skinned: false,
+            }],
+            ..RenderScene::default()
+        };
+
+        let bytes = encode_binary_stl(&scene).unwrap();
+        let first_vertex_x = f32::from_le_bytes(bytes[96..100].try_into().unwrap());
+        assert!((first_vertex_x - 100.0).abs() < 1.0e-5);
     }
 
     #[test]
