@@ -10,6 +10,7 @@ pub struct PrintValidationReport {
     pub boundary_edges: u64,
     pub non_manifold_edges: u64,
     pub invalid_indices: u64,
+    pub size_meters: [f32; 3],
 }
 
 impl PrintValidationReport {
@@ -26,9 +27,23 @@ pub fn validate_print_scene(scene: &RenderScene) -> PrintValidationReport {
         mesh_count: scene.meshes.len() as u32,
         ..PrintValidationReport::default()
     };
+    let mut bounds_min = [f32::INFINITY; 3];
+    let mut bounds_max = [f32::NEG_INFINITY; 3];
+    let mut has_vertex = false;
 
     for mesh in &scene.meshes {
         let mut edges = HashMap::<(u32, u32), u32>::new();
+
+        for vertex in &mesh.vertices {
+            let position = vertex.position;
+            if position.iter().all(|value| value.is_finite()) {
+                has_vertex = true;
+                for axis in 0..3 {
+                    bounds_min[axis] = bounds_min[axis].min(position[axis]);
+                    bounds_max[axis] = bounds_max[axis].max(position[axis]);
+                }
+            }
+        }
 
         for triangle in mesh.indices.chunks_exact(3) {
             report.triangle_count += 1;
@@ -70,6 +85,14 @@ pub fn validate_print_scene(scene: &RenderScene) -> PrintValidationReport {
         }
     }
 
+    if has_vertex {
+        report.size_meters = [
+            (bounds_max[0] - bounds_min[0]).max(0.0),
+            (bounds_max[1] - bounds_min[1]).max(0.0),
+            (bounds_max[2] - bounds_min[2]).max(0.0),
+        ];
+    }
+
     report
 }
 
@@ -88,6 +111,25 @@ fn triangle_area_twice(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> f32 {
 mod tests {
     use super::*;
     use builder_render::{RenderMesh, RenderScene, RenderVertex};
+
+    #[test]
+    fn reports_physical_bounds_in_engine_meters() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "bounds".into(),
+                vertices: vec![
+                    RenderVertex { position: [0.0, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [0.1, 0.2, 0.3], ..RenderVertex::default() },
+                    RenderVertex { position: [0.0, 0.2, 0.0], ..RenderVertex::default() },
+                ],
+                indices: vec![0, 1, 2],
+                skinned: false,
+            }],
+            ..RenderScene::default()
+        };
+        let report = validate_print_scene(&scene);
+        assert_eq!(report.size_meters, [0.1, 0.2, 0.3]);
+    }
 
     #[test]
     fn open_triangle_reports_three_boundary_edges() {
