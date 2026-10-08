@@ -344,6 +344,8 @@ class NativeViewportController extends ChangeNotifier {
     _pendingScenes.remove(sceneKey);
     _loadedSceneKeys.remove(sceneKey);
     _jointNamesByScene.remove(sceneKey);
+    _jointScreenPointsByScene.remove(sceneKey);
+    _sceneTransforms.remove(sceneKey);
     final session = _session;
     if (session != null) {
       try {
