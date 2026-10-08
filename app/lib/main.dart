@@ -1350,14 +1350,25 @@ class _IkEditorState extends State<_IkEditor> {
   void didUpdateWidget(covariant _IkEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
     final effector = _selected?.effector;
-    if (effector != null &&
-        !widget.chains.any((chain) => chain.effector == effector)) {
+    if (effector == null) return;
+
+    IkChainBinding? refreshed;
+    for (final chain in widget.chains) {
+      if (chain.effector == effector) {
+        refreshed = chain;
+        break;
+      }
+    }
+
+    if (refreshed == null) {
       _selected = null;
       _baseTarget = null;
       _pole = null;
       _offsetX = 0;
       _offsetY = 0;
       _offsetZ = 0;
+    } else {
+      _selected = refreshed;
     }
   }
 
@@ -1588,7 +1599,7 @@ class _IkEditorState extends State<_IkEditor> {
             children: [
               Expanded(
                 child: Text(
-                  '\${selected.upper} → \${selected.lower} → \${selected.end}',
+                  '${selected.upper} → ${selected.lower} → ${selected.end}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 7, color: colors.onSurfaceVariant),
@@ -1664,7 +1675,7 @@ class _IkAxisSlider extends StatelessWidget {
         SizedBox(
           width: 52,
           child: Text(
-            '\${(value * 1000).round()} mm',
+            '${(value * 1000).round()} mm',
             textAlign: TextAlign.right,
             style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
           ),
