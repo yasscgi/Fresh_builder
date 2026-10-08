@@ -181,6 +181,49 @@ class _BuilderPageState extends State<BuilderPage> {
     await _nativeRig.setHandOpen(open);
   }
 
+  Future<void> _selectFkBone(String? bone) async {
+    await _nativeRig.selectBone(bone);
+  }
+
+  Future<void> _beginFkGesture() async {
+    if (!_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) return;
+    _workspace.beginPoseGesture();
+    await _nativeRig.beginGesture();
+  }
+
+  void _updateFkAxis(String axis, double value) {
+    final bone = _nativeRig.selectedBone;
+    if (bone == null || !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) return;
+    final current = _nativeRig.selectedFkRotation;
+    _nativeRig.updateFkRotation(
+      viewport: _nativeViewport,
+      sceneKey: _baseCharacterSceneKey,
+      bone: bone,
+      x: axis == 'x' ? value : (current?.x ?? 0.0),
+      y: axis == 'y' ? value : (current?.y ?? 0.0),
+      z: axis == 'z' ? value : (current?.z ?? 0.0),
+    );
+  }
+
+  Future<void> _commitFkGesture() async {
+    try {
+      await _nativeRig.commitGesture();
+    } finally {
+      _workspace.commitPoseGesture();
+    }
+  }
+
+  Future<void> _cancelFkGesture() async {
+    try {
+      await _nativeRig.cancelGesture(
+        viewport: _nativeViewport,
+        sceneKey: _baseCharacterSceneKey,
+      );
+    } finally {
+      _workspace.cancelPoseGesture();
+    }
+  }
+
   Future<void> _undoRig() async {
     if (!_nativeRig.canUndo ||
         !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
@@ -601,6 +644,12 @@ class _BuilderPageState extends State<BuilderPage> {
               rigController: _nativeRig,
               onModeChanged: (mode) => unawaited(_setRigMode(mode)),
               workspace: _workspace,
+              jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
+              onBoneSelected: (bone) => unawaited(_selectFkBone(bone)),
+              onFkGestureStart: () => unawaited(_beginFkGesture()),
+              onFkAxisChanged: _updateFkAxis,
+              onFkGestureEnd: () => unawaited(_commitFkGesture()),
+              onFkGestureCancel: () => unawaited(_cancelFkGesture()),
             ),
           ),
       ],
@@ -1006,11 +1055,23 @@ class _RigPanel extends StatelessWidget {
     required this.rigController,
     required this.onModeChanged,
     required this.workspace,
+    required this.jointNames,
+    required this.onBoneSelected,
+    required this.onFkGestureStart,
+    required this.onFkAxisChanged,
+    required this.onFkGestureEnd,
+    required this.onFkGestureCancel,
   });
 
   final NativeRigController rigController;
   final ValueChanged<BridgeRigMode> onModeChanged;
   final BuilderWorkspaceController workspace;
+  final List<String> jointNames;
+  final ValueChanged<String?> onBoneSelected;
+  final VoidCallback onFkGestureStart;
+  final void Function(String axis, double value) onFkAxisChanged;
+  final VoidCallback onFkGestureEnd;
+  final VoidCallback onFkGestureCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -1161,6 +1222,19 @@ class _RigPanel extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (mode == BridgeRigMode.fk) ...[
+                      const SizedBox(height: 14),
+                      _FkEditor(
+                        jointNames: jointNames,
+                        selectedBone: rigController.selectedBone,
+                        rotation: rigController.selectedFkRotation,
+                        onBoneSelected: onBoneSelected,
+                        onGestureStart: onFkGestureStart,
+                        onAxisChanged: onFkAxisChanged,
+                        onGestureEnd: onFkGestureEnd,
+                        onGestureCancel: onFkGestureCancel,
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     const Text(
                       'Hands',
