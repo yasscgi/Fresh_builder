@@ -154,17 +154,20 @@ flutter build macos --debug
 4. Dart enum name serialization in Design v5.
 5. Design restore ordering: scenes must load before transforms and rig replay.
 6. 3MF ZIP package compatibility with Bambu Studio/PrusaSlicer/OrcaSlicer.
-7. 3MF model units are currently `meter`; verify slicer expectations and scale.
-8. STL has no unit metadata. Geometry is in engine world meters. Decide whether printable export should bake meters->millimeters before release. This is a release-critical scale check.
+7. STL and 3MF now both bake engine meters -> millimeters for slicer-facing coordinates.
+8. Validate Print reports final X/Y/Z dimensions in millimeters; verify a known 100 mm model reports 100 mm before release.
 9. Print validation is topology validation, not boolean union/repair.
 10. Multiple overlapping meshes are exported as separate shells; this is intentional until a robust union/remesh stage exists.
 11. FBX remains `needs_fbx_decoder`; GLB/glTF is the working native import route.
 12. Android/iOS native texture backend is not complete.
 
-## Release-critical decision: print units
-The renderer normalizes imported data using `meters_per_unit`. STL does not encode units, and many slicers interpret STL coordinates as millimeters. Before production release, test a known 100 mm cube. If exported STL loads as 0.1 mm, bake world meters to millimeters at export. 3MF explicitly declares its model unit and must remain internally consistent.
+## Print units
+The renderer normalizes imported data into engine meters. Export is now explicit:
+- STL: engine meters are multiplied by 1000 before writing coordinates.
+- 3MF: model unit is `millimeter` and engine meters are multiplied by 1000.
+- Validate Print reports bounding dimensions in millimeters.
 
-Do not guess. Add a regression test with known dimensions.
+Regression tests cover 0.1 m -> 100 mm. Still verify one known-size real asset in Bambu/Orca/Prusa before release.
 
 ## Design v5 restore contract
 Restore order must remain:
@@ -216,3 +219,15 @@ GitHub Actions has repeatedly returned jobs with `steps=null` and runner failure
 - 3MF opens in at least one slicer.
 - save/restore reproduces same assets, transforms and pose.
 - IK/FK/hand controls do not rotate camera while dragging.
+
+
+## Mobile texture status
+- Android viewport texture plugin now exists under `app/packages/fresh_builder_viewport_texture/android`.
+- It uses Java + JNI/C++ to resolve the Rust frame bridge and posts RGBA frames to a Flutter SurfaceTexture.
+- iOS viewport texture plugin now exists under `app/packages/fresh_builder_viewport_texture/ios`.
+- It uses FlutterTexture + CVPixelBuffer and resolves the Rust C ABI from the process/framework.
+- Bootstrap scripts:
+  - `scripts/bootstrap_android.ps1`
+  - `scripts/bootstrap_android.sh`
+  - `scripts/bootstrap_ios.sh`
+- CI includes Android and iOS mobile jobs, but hosted-runner failures may still block execution before steps.
