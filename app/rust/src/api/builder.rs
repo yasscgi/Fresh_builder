@@ -1,6 +1,6 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
 use builder_io::{
-    decode_gltf_scene, detect_asset_format, inspect_scene_file, validate_print_scene,
+    decode_fbx_scene, decode_gltf_scene, detect_asset_format, inspect_scene_file, validate_print_scene,
     write_3mf, write_binary_stl, AssetFormat, ImportReadiness,
 };
 use std::{collections::BTreeMap, sync::Mutex};
@@ -261,7 +261,7 @@ pub fn inspect_local_scene(
     let scene = inspect_scene_file(&path, meters_per_unit, skinned)?;
     let readiness = match scene.readiness() {
         ImportReadiness::Ready => "ready",
-        ImportReadiness::NeedsFbxDecoder => "needs_fbx_decoder",
+        ImportReadiness::NeedsFbxSkinning => "needs_fbx_skinning",
         ImportReadiness::Unsupported => "unsupported",
     };
 
@@ -421,18 +421,27 @@ impl NativeViewportSession {
                 inner.render_frame();
                 Ok(status)
             }
-            AssetFormat::Fbx => Ok(NativeSceneStatus {
-                scene_key,
-                path,
-                format: format_name,
-                readiness: "needs_fbx_decoder".to_owned(),
-                loaded_to_gpu: false,
-                mesh_count: 0,
-                vertex_count: 0,
-                index_count: 0,
-                joint_count: 0,
-                skinned_mesh_count: 0,
-            }),
+            AssetFormat::Fbx => {
+                let scene = decode_fbx_scene(&path)?;
+                let status = NativeSceneStatus {
+                    scene_key: scene_key.clone(),
+                    path,
+                    format: format_name,
+                    readiness: "ready_static_fbx".to_owned(),
+                    loaded_to_gpu: true,
+                    mesh_count: scene.meshes.len() as u32,
+                    vertex_count: scene.vertex_count() as u64,
+                    index_count: scene.index_count() as u64,
+                    joint_count: 0,
+                    skinned_mesh_count: 0,
+                };
+
+                let mut inner = self.lock_inner()?;
+                let gpu_scene = inner.renderer.upload_scene(&scene)?;
+                inner.scenes.insert(scene_key, gpu_scene);
+                inner.render_frame();
+                Ok(status)
+            },
             _ => Ok(NativeSceneStatus {
                 scene_key,
                 path,
