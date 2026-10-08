@@ -145,3 +145,17 @@ The branch remains unmerged and must not be called production-ready until execut
 3. Wire Flutter FK gesture updates to NativeRigSession + NativeViewportSession.set_scene_fk_rotation(), using pose_snapshot() to resync after undo/redo.
 4. Validate the implemented skinning with a known tiny skinned GLB before adding polished gizmos.
 5. Then convert two-bone IK results into real upper/lower joint rotations and feed the same palette path.
+
+## Continuation update — 2026-10-08
+
+- Flutter now has a concrete desktop FK editing path instead of mode-only buttons.
+- The rig panel reads real joint names from the loaded base-character NativeViewport scene and refreshes when that scene finishes loading.
+- FK bone selection is authoritative through NativeRigSession.
+- X/Y/Z FK sliders send coalesced edits through NativeRigController to both Rust history and the WGPU joint-palette path.
+- Slider start locks viewport navigation and begins a transient rig gesture; release commits one history step and unlocks navigation; cancel restores the authoritative snapshot and unlocks navigation.
+- NativeRigController serializes gesture start behind any pending FK flush to avoid cross-gesture races.
+- This is a testable intermediate control surface; final 3D FK gizmo/picking is still pending.
+- Mobile still exposes the compact IK/FK rail but does not yet have the bone editor/gizmo.
+- IK still needs solved-point -> real joint-rotation conversion before viewport controls should be exposed.
+
+Next exact step: validate this branch with executable CI/local Flutter+Rust tooling, then implement renderer-backed IK joint rotations and reuse the same palette update path. Do not add a second Flutter pose model.
