@@ -277,6 +277,29 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
+  Future<({double x, double y, double z})?> sceneJointScreenDragDelta({
+    required String sceneKey,
+    required String bone,
+    required double deltaX,
+    required double deltaY,
+  }) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final value = await session.sceneJointScreenDragDelta(
+        sceneKey: sceneKey,
+        bone: bone,
+        deltaXPixels: deltaX,
+        deltaYPixels: deltaY,
+      );
+      return (x: value.x, y: value.y, z: value.z);
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> _refreshJointScreenPoints(String sceneKey) async {
     final session = _session;
     if (session == null || !_loadedSceneKeys.contains(sceneKey)) return;
