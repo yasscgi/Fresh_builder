@@ -18,6 +18,7 @@ import 'src/cloud/supabase_bootstrap.dart';
 import 'src/rust/api/rig.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/workspace/asset_transform_ui.dart';
+import 'src/workspace/builder_design_autosave.dart';
 import 'src/workspace/builder_design_persistence.dart';
 import 'src/workspace/builder_persistence_actions.dart';
 import 'src/workspace/builder_saved_designs_picker.dart';
@@ -116,6 +117,7 @@ class _BuilderPageState extends State<BuilderPage> {
   static const _persistence = BuilderDesignPersistence();
   late final BuilderWorkspaceController _workspace;
   late final NativeRigController _nativeRig;
+  late final BuilderDesignAutosaveController _autosave;
   late final NativeViewportController _nativeViewport;
 
   static const fallbackCategories = <(IconData, String)>[
@@ -132,10 +134,25 @@ class _BuilderPageState extends State<BuilderPage> {
     _workspace = BuilderWorkspaceController();
     _nativeRig = NativeRigController();
     _nativeViewport = NativeViewportController();
+    _autosave = BuilderDesignAutosaveController();
+    _nativeRig.addListener(_scheduleLocalAutosave);
     unawaited(_nativeRig.ensureInitialized());
     if (widget.cloudReady) {
       _assetCache = BuilderAssetDiskCache();
     }
+  }
+
+  void _scheduleLocalAutosave() {
+    final product = _selectedProduct;
+    if (product == null || _sceneSelections.isEmpty) return;
+
+    _autosave.schedule(
+      productId: product.id,
+      productName: product.name,
+      sceneSelections: _sceneSelections,
+      viewport: _nativeViewport,
+      rig: _nativeRig,
+    );
   }
 
   Future<void> _preloadBaseCharacter(BuilderCloudData data) async {
@@ -166,6 +183,7 @@ class _BuilderPageState extends State<BuilderPage> {
         metersPerUnit: _metersPerUnit(choice),
       );
       _sceneSelections[_baseCharacterSceneKey] = choice;
+      _scheduleLocalAutosave();
       if (!mounted) return;
       final nativeScene = _nativeViewport.sceneStatus;
       _workspace.setBusy(
@@ -619,6 +637,8 @@ class _BuilderPageState extends State<BuilderPage> {
 
   @override
   void dispose() {
+    _nativeRig.removeListener(_scheduleLocalAutosave);
+    _autosave.dispose();
     _assetCache?.dispose();
     _nativeRig.dispose();
     _nativeViewport.dispose();
@@ -732,6 +752,7 @@ class _BuilderPageState extends State<BuilderPage> {
         metersPerUnit: _metersPerUnit(choice),
       );
       _sceneSelections[nativeSceneKey] = choice;
+      _scheduleLocalAutosave();
 
       if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
       final nativeScene = _nativeViewport.sceneStatus;
@@ -814,6 +835,7 @@ class _BuilderPageState extends State<BuilderPage> {
       await _nativeViewport.commitSceneTransformGesture(sceneKey);
     } finally {
       _workspace.commitAssetTransformGesture();
+      _scheduleLocalAutosave();
     }
   }
 
@@ -831,12 +853,14 @@ class _BuilderPageState extends State<BuilderPage> {
     final sceneKey = _selectedTransformSceneKey;
     if (sceneKey == null) return;
     await _nativeViewport.undoSceneTransform(sceneKey);
+    _scheduleLocalAutosave();
   }
 
   Future<void> _redoSelectedAssetTransform() async {
     final sceneKey = _selectedTransformSceneKey;
     if (sceneKey == null) return;
     await _nativeViewport.redoSceneTransform(sceneKey);
+    _scheduleLocalAutosave();
   }
 
   Future<void> _updateSelectedAssetTransform(
@@ -892,6 +916,7 @@ class _BuilderPageState extends State<BuilderPage> {
   }
 
   Future<void> _openProduct(BuilderProductSummary product) async {
+    _autosave.cancel();
     await _nativeRig.reset();
     _workspace.cancelPoseGesture();
     _workspace.setRigVisible(false);
