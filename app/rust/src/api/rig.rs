@@ -28,7 +28,7 @@ struct RigPose {
     mode: BridgeRigMode,
     selected_bone: Option<String>,
     fk: BTreeMap<String, BridgeEuler>,
-    ik: BTreeMap<String, BridgePoint3>,
+    ik: BTreeMap<String, RigIkTarget>,
     hand_open: f32,
 }
 
@@ -61,10 +61,23 @@ pub struct BridgeFkRotation {
     pub rotation: BridgeEuler,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct RigIkTarget {
+    upper: String,
+    lower: String,
+    end: String,
+    target: BridgePoint3,
+    pole: BridgePoint3,
+}
+
 #[derive(Clone, Debug)]
 pub struct BridgeIkTarget {
     pub effector: String,
+    pub upper: String,
+    pub lower: String,
+    pub end: String,
     pub target: BridgePoint3,
+    pub pole: BridgePoint3,
 }
 
 #[derive(Clone, Debug)]
@@ -130,9 +143,13 @@ impl NativeRigSession {
             ik: pose
                 .ik
                 .iter()
-                .map(|(effector, target)| BridgeIkTarget {
+                .map(|(effector, command)| BridgeIkTarget {
                     effector: effector.clone(),
-                    target: *target,
+                    upper: command.upper.clone(),
+                    lower: command.lower.clone(),
+                    end: command.end.clone(),
+                    target: command.target,
+                    pole: command.pole,
                 })
                 .collect(),
             hand_open: pose.hand_open,
@@ -178,16 +195,49 @@ impl NativeRigSession {
     pub fn update_ik_target(
         &self,
         effector: String,
-        x: f32,
-        y: f32,
-        z: f32,
+        upper: String,
+        lower: String,
+        end: String,
+        target_x: f32,
+        target_y: f32,
+        target_z: f32,
+        pole_x: f32,
+        pole_y: f32,
+        pole_z: f32,
     ) -> Result<BridgeRigState, String> {
-        if effector.trim().is_empty() || !x.is_finite() || !y.is_finite() || !z.is_finite() {
-            return Err("IK target requires an effector name and finite coordinates".to_owned());
+        if effector.trim().is_empty()
+            || upper.trim().is_empty()
+            || lower.trim().is_empty()
+            || end.trim().is_empty()
+        {
+            return Err("IK target requires effector and complete chain names".to_owned());
         }
+
+        let values = [target_x, target_y, target_z, pole_x, pole_y, pole_z];
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err("IK target and pole coordinates must be finite".to_owned());
+        }
+
         self.replace_transient(|pose| {
             pose.mode = BridgeRigMode::Ik;
-            pose.ik.insert(effector, BridgePoint3 { x, y, z });
+            pose.ik.insert(
+                effector,
+                RigIkTarget {
+                    upper,
+                    lower,
+                    end,
+                    target: BridgePoint3 {
+                        x: target_x,
+                        y: target_y,
+                        z: target_z,
+                    },
+                    pole: BridgePoint3 {
+                        x: pole_x,
+                        y: pole_y,
+                        z: pole_z,
+                    },
+                },
+            );
         })
     }
 
@@ -294,7 +344,20 @@ mod tests {
         assert_eq!(fk.mode, BridgeRigMode::Fk);
         rig.commit_gesture().unwrap();
 
-        let ik = rig.update_ik_target("LeftFoot".into(), 0.0, 0.0, 1.0).unwrap();
+        let ik = rig
+            .update_ik_target(
+                "LeftFoot".into(),
+                "LeftUpLeg".into(),
+                "LeftLeg".into(),
+                "LeftFoot".into(),
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                1.0,
+                0.0,
+            )
+            .unwrap();
         assert_eq!(ik.mode, BridgeRigMode::Ik);
     }
 
@@ -346,6 +409,32 @@ mod tests {
 
         rig.redo().unwrap();
         assert_eq!(rig.pose_snapshot().unwrap().fk.len(), 1);
+    }
+
+    #[test]
+    fn ik_snapshot_keeps_chain_and_pole_for_undo_redo_resync() {
+        let rig = NativeRigSession::create();
+        rig.update_ik_target(
+            "LeftFoot".into(),
+            "LeftUpLeg".into(),
+            "LeftLeg".into(),
+            "LeftFoot".into(),
+            0.2,
+            0.1,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        )
+        .unwrap();
+        rig.commit_gesture().unwrap();
+
+        let snapshot = rig.pose_snapshot().unwrap();
+        assert_eq!(snapshot.ik.len(), 1);
+        assert_eq!(snapshot.ik[0].upper, "LeftUpLeg");
+        assert_eq!(snapshot.ik[0].lower, "LeftLeg");
+        assert_eq!(snapshot.ik[0].end, "LeftFoot");
+        assert!((snapshot.ik[0].pole.z - 1.0).abs() < 1.0e-6);
     }
 
     #[test]
