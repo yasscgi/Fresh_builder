@@ -362,9 +362,11 @@ class _BuilderPageState extends State<BuilderPage> {
             '${report.sizeXmm.toStringAsFixed(1)} × '
             '${report.sizeYmm.toStringAsFixed(1)} × '
             '${report.sizeZmm.toStringAsFixed(1)} mm · '
+            '${report.connectedComponents} shells · '
             '${report.triangleCount} tris · '
             '${report.boundaryEdges} boundary · '
             '${report.nonManifoldEdges} non-manifold · '
+            '${report.inconsistentWindingEdges} winding · '
             '${report.degenerateTriangles} degenerate',
       );
     } catch (_) {
