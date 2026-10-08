@@ -100,6 +100,25 @@ impl ViewportRenderer {
             .upload_scene(scene, &self.pipeline.joint_palette_bind_group_layout)
     }
 
+    pub fn apply_scene_two_bone_solution(
+        &self,
+        scene: &mut GpuScene,
+        upper: usize,
+        lower: usize,
+        end: usize,
+        solved_mid: [f32; 3],
+        solved_end: [f32; 3],
+    ) -> Result<(), String> {
+        scene.apply_two_bone_solution(
+            &self.context.queue,
+            upper,
+            lower,
+            end,
+            solved_mid,
+            solved_end,
+        )
+    }
+
     pub fn set_scene_joint_local_matrix(
         &self,
         scene: &mut GpuScene,
