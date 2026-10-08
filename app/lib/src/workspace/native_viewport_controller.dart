@@ -300,11 +300,16 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshJointScreenPoints(String sceneKey) async {
+  Future<void> _refreshJointScreenPoints(
+    String sceneKey, {
+    bool depthAware = true,
+  }) async {
     final session = _session;
     if (session == null || !_loadedSceneKeys.contains(sceneKey)) return;
     try {
-      final values = await session.sceneJointScreenPositions(sceneKey: sceneKey);
+      final values = depthAware
+          ? await session.sceneJointScreenPositions(sceneKey: sceneKey)
+          : await session.sceneJointScreenPositionsFast(sceneKey: sceneKey);
       _jointScreenPointsByScene[sceneKey] = values
           .map(
             (value) => NativeJointScreenPoint(
@@ -380,7 +385,7 @@ class NativeViewportController extends ChangeNotifier {
         z: z,
       );
       await _markTextureFrame();
-      await _refreshJointScreenPoints(sceneKey);
+      await _refreshJointScreenPoints(sceneKey, depthAware: false);
       _sceneError = null;
     } catch (error) {
       _sceneError = error.toString();
@@ -414,7 +419,7 @@ class NativeViewportController extends ChangeNotifier {
         pole: BridgeVec3(x: poleX, y: poleY, z: poleZ),
       );
       await _markTextureFrame();
-      await _refreshJointScreenPoints(sceneKey);
+      await _refreshJointScreenPoints(sceneKey, depthAware: false);
       _sceneError = null;
       notifyListeners();
       return result;
@@ -438,7 +443,7 @@ class NativeViewportController extends ChangeNotifier {
         openAmount: openAmount,
       );
       await _markTextureFrame();
-      await _refreshJointScreenPoints(sceneKey);
+      await _refreshJointScreenPoints(sceneKey, depthAware: false);
       _sceneError = null;
       notifyListeners();
       return affected;
