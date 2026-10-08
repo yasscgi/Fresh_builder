@@ -2,6 +2,7 @@ mod asset;
 mod cache;
 mod fbx;
 mod gltf;
+mod repair;
 mod scene;
 mod stl;
 mod stl_decode;
@@ -20,3 +21,5 @@ pub use three_mf::{encode_3mf, write_3mf};
 pub use validation::{validate_print_scene, PrintValidationReport};
 
 pub use stl_decode::decode_stl_scene;
+
+pub use repair::{safe_repair_scene, SafeRepairReport};
