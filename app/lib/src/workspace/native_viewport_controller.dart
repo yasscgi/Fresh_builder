@@ -437,6 +437,53 @@ class NativeViewportController extends ChangeNotifier {
     await setSceneTransform(sceneKey: sceneKey, transform: next);
   }
 
+  Future<NativeScreenPoint?> projectWorldPoint({
+    required double x,
+    required double y,
+    required double z,
+  }) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final point = await session.worldPointScreenPosition(
+        point: BridgeVec3(x: x, y: y, z: z),
+      );
+      return NativeScreenPoint(
+        x: point.x.toDouble(),
+        y: point.y.toDouble(),
+        depth: point.depth.toDouble(),
+        visible: point.visible,
+      );
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<({double x, double y, double z})?> screenDragWorldDeltaAt({
+    required double x,
+    required double y,
+    required double z,
+    required double deltaX,
+    required double deltaY,
+  }) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final delta = await session.screenDragWorldDeltaAt(
+        point: BridgeVec3(x: x, y: y, z: z),
+        deltaXPixels: deltaX,
+        deltaYPixels: deltaY,
+      );
+      return (x: delta.x, y: delta.y, z: delta.z);
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> setSceneTransform({
     required String sceneKey,
     required NativeSceneTransform transform,
@@ -709,4 +756,19 @@ class NativeSceneTransform {
       scale: scale ?? this.scale,
     );
   }
+}
+
+
+class NativeScreenPoint {
+  const NativeScreenPoint({
+    required this.x,
+    required this.y,
+    required this.depth,
+    required this.visible,
+  });
+
+  final double x;
+  final double y;
+  final double depth;
+  final bool visible;
 }
