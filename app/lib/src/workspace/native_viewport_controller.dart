@@ -38,6 +38,8 @@ class NativeViewportController extends ChangeNotifier {
   int? get textureId => _textureId;
   String? get textureError => _textureError;
   bool get textureAvailable => _textureId != null;
+  int get physicalWidth => _width;
+  int get physicalHeight => _height;
   bool hasLoadedScene(String sceneKey) => _loadedSceneKeys.contains(sceneKey);
   List<String> sceneJointNames(String sceneKey) =>
       List<String>.unmodifiable(_jointNamesByScene[sceneKey] ?? const <String>[]);
@@ -106,6 +108,10 @@ class NativeViewportController extends ChangeNotifier {
       _width = width;
       _height = height;
       await _markTextureFrame();
+      for (final sceneKey in _loadedSceneKeys) {
+        await _refreshJointScreenPoints(sceneKey);
+      }
+      notifyListeners();
     } catch (error) {
       _error = error.toString();
       notifyListeners();
@@ -179,6 +185,9 @@ class NativeViewportController extends ChangeNotifier {
         );
       }
       await _markTextureFrame();
+      for (final sceneKey in _loadedSceneKeys) {
+        await _refreshJointScreenPoints(sceneKey);
+      }
       notifyListeners();
     } catch (error) {
       _error = error.toString();
@@ -238,7 +247,6 @@ class NativeViewportController extends ChangeNotifier {
       } else {
         _loadedSceneKeys.remove(sceneKey);
         _jointNamesByScene.remove(sceneKey);
-    _jointScreenPointsByScene.remove(sceneKey);
         _jointScreenPointsByScene.remove(sceneKey);
       }
       _sceneError = null;
