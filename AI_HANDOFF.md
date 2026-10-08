@@ -375,3 +375,21 @@ Still pending:
 - FBX decoder strategy,
 - Android/iOS native texture backend,
 - executable CI validation on a functioning GitHub runner.
+
+
+## Final pre-merge continuation — 2026-10-08
+
+Additional completed scope:
+- BuilderDesign v5 can now be loaded from local .freshbuilder.json.
+- Restore verifies product id, reloads saved assets, restores saved scene keys, reapplies scene transforms, then replays FK, IK, hand state, selected bone/effector and rig mode.
+- Added dependency-free 3MF package writer (stored ZIP with Content Types, relationships and 3D model XML).
+- Added print topology validation reporting invalid indices, degenerate triangles, boundary edges and non-manifold edges.
+- Native bridge exposes validate_current_print and export_current_3mf.
+- Flutter persistence service exposes Validate Print and Export 3MF.
+- Desktop and mobile both expose Save, Restore, Validate, STL and 3MF actions.
+- Added CODEX_HANDOFF.md with architecture map, validation order, known risks and release-critical print-unit check.
+- Added scripts/codex_verify.ps1 and scripts/codex_verify.sh.
+- FRB counters exposed to Dart use u32 to avoid unsigned-64 mapping ambiguity.
+
+Pre-merge caveat:
+GitHub Actions still fails before repository steps (jobs report steps=null), so no claim is made that cargo/flutter compilation has passed. The user explicitly requested merge now and plans to run the complete Codex verification flow afterward.
