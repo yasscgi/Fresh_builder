@@ -335,3 +335,33 @@ Additional completed scope:
 
 Pre-merge caveat:
 GitHub Actions still fails before repository steps (jobs report steps=null), so no claim is made that cargo/flutter compilation has passed. The user explicitly requested merge now and plans to run the complete Codex verification flow afterward.
+
+
+## Post-merge hardening — 2026-10-08
+
+Implemented directly on main after PR #17:
+- Android viewport texture plugin using Flutter SurfaceTexture + Java/JNI/C++ bridge to the Rust frame-capture C ABI.
+- iOS viewport texture plugin using FlutterTexture + CVPixelBuffer and retained Rust C symbols.
+- Android texture bridge now carries frame generation, skips duplicate frames and reuses pixel buffers.
+- iOS/macOS texture bridges reuse RGBA buffers across frames.
+- FRB Native Assets integration added to Codex/bootstrap scripts and CI before bridge generation.
+- Android/iOS CI jobs added.
+- STL export now explicitly converts engine meters to millimeters; regression test covers 0.1 m -> 100 mm.
+- 3MF export now declares millimeter units and converts engine meters to millimeters; regression test covers 0.1 m -> 100 mm.
+- Print validation now reports final X/Y/Z mm dimensions, connected shell count and inconsistent edge winding in addition to invalid indices, degenerate, boundary and non-manifold topology.
+- Export performs automatic preflight. Invalid triangle indices or empty geometry block STL/3MF export; non-watertight geometry exports with explicit warnings.
+- Local Design v5 autosave added with 900 ms debounce after committed rig/hand/asset edits; autosave failures are best-effort and non-fatal.
+- Native Design v5 now synchronizes with the existing Supabase saved_builder_designs table under authenticated RLS while retaining local fallback.
+- Saved Designs picker supports cloud/local restore and cloud rename/duplicate/delete. Legacy web Builder rows remain visible but are not interpreted as Native Design v5.
+- Static FBX and single-skinned-mesh rigged FBX import added through ufbx 0.11.5:
+  - right-handed Y-up normalization,
+  - meters,
+  - triangulation,
+  - UV/normals,
+  - FBX SkinDeformer clusters,
+  - geometry_to_bone inverse bind matrices,
+  - ancestor skeleton hierarchy,
+  - top four normalized skin weights.
+  Multi-skinned FBX scenes are rejected explicitly instead of being imported incorrectly.
+- Binary and ASCII STL import added with meters_per_unit conversion and tests.
+- Current native import support is GLB/glTF, FBX (static or one skinned mesh), and STL. 3MF is currently export-only; the app no longer reports 3MF import as implemented.
