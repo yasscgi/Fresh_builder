@@ -243,7 +243,6 @@ pub fn inspect_local_asset(path: String) -> LocalAssetInfo {
             | AssetFormat::Glb
             | AssetFormat::Gltf
             | AssetFormat::Stl
-            | AssetFormat::ThreeMf
     );
 
     LocalAssetInfo {
