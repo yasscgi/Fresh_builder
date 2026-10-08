@@ -1,7 +1,10 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::{euler_xyz_matrix, identity_matrix, mat4_mul, GpuContext, Mat4, RenderScene, SkeletonPose};
+use crate::{
+    blend_skin_matrices, euler_xyz_matrix, identity_matrix, mat4_mul, transform_point,
+    GpuContext, Mat4, RenderScene, SkeletonPose,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -25,6 +28,7 @@ pub struct GpuScene {
     pub meshes: Vec<GpuMesh>,
     pub joint_count: u32,
     pub skeleton_pose: SkeletonPose,
+    source_scene: RenderScene,
     joint_palette_buffer: wgpu::Buffer,
     pub joint_palette_bind_group: wgpu::BindGroup,
     model_buffer: wgpu::Buffer,
@@ -33,6 +37,39 @@ pub struct GpuScene {
 }
 
 impl GpuScene {
+    pub fn baked_current_scene(&self) -> Result<RenderScene, String> {
+        let palette = self.skeleton_pose.palette()?;
+        let mut baked = self.source_scene.clone();
+
+        for mesh in &mut baked.meshes {
+            for vertex in &mut mesh.vertices {
+                let skin = if mesh.skinned {
+                    blend_skin_matrices(
+                        &palette,
+                        vertex.joints.map(u32::from),
+                        vertex.weights,
+                    )
+                } else {
+                    identity_matrix()
+                };
+
+                let skinned_position = transform_point(skin, vertex.position);
+                let skinned_normal = transform_direction(skin, vertex.normal);
+                vertex.position = transform_point(self.model_matrix, skinned_position);
+                vertex.normal = normalize_direction(
+                    transform_direction(self.model_matrix, skinned_normal),
+                    vertex.normal,
+                );
+                vertex.joints = [0; 4];
+                vertex.weights = [0.0; 4];
+            }
+            mesh.skinned = false;
+        }
+
+        baked.skeleton.joints.clear();
+        Ok(baked)
+    }
+
     pub fn model_matrix(&self) -> Mat4 {
         self.model_matrix
     }
@@ -161,6 +198,31 @@ impl GpuScene {
 }
 
 
+
+fn transform_direction(matrix: Mat4, vector: [f32; 3]) -> [f32; 3] {
+    [
+        matrix[0][0] * vector[0]
+            + matrix[1][0] * vector[1]
+            + matrix[2][0] * vector[2],
+        matrix[0][1] * vector[0]
+            + matrix[1][1] * vector[1]
+            + matrix[2][1] * vector[2],
+        matrix[0][2] * vector[0]
+            + matrix[1][2] * vector[1]
+            + matrix[2][2] * vector[2],
+    ]
+}
+
+fn normalize_direction(value: [f32; 3], fallback: [f32; 3]) -> [f32; 3] {
+    let length =
+        (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt();
+    if length.is_finite() && length > 1.0e-8 {
+        [value[0] / length, value[1] / length, value[2] / length]
+    } else {
+        fallback
+    }
+}
+
 fn model_transform_matrix(
     translation: [f32; 3],
     rotation_xyz: [f32; 3],
@@ -277,6 +339,7 @@ impl GpuContext {
             meshes,
             joint_count: scene.joint_count(),
             skeleton_pose,
+            source_scene: scene.clone(),
             joint_palette_buffer,
             joint_palette_bind_group,
             model_buffer,
@@ -290,6 +353,45 @@ impl GpuContext {
 mod tests {
     use super::model_transform_matrix;
     use crate::transform_point;
+
+    #[test]
+    fn baked_current_scene_matches_current_skin_pose_and_model_transform() {
+        use crate::{RenderJoint, RenderMesh, RenderSkeleton, RenderVertex};
+
+        let mut inverse_bind = identity_matrix();
+        inverse_bind[3] = [-1.0, 0.0, 0.0, 1.0];
+        let mut joint_local = identity_matrix();
+        joint_local[3] = [1.0, 0.0, 0.0, 1.0];
+
+        let source = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "body".into(),
+                vertices: vec![RenderVertex {
+                    position: [1.0, 0.0, 0.0],
+                    normal: [1.0, 0.0, 0.0],
+                    joints: [0, 0, 0, 0],
+                    weights: [1.0, 0.0, 0.0, 0.0],
+                    ..RenderVertex::default()
+                }],
+                indices: vec![0],
+                skinned: true,
+            }],
+            skeleton: RenderSkeleton {
+                joints: vec![RenderJoint {
+                    name: "root".into(),
+                    parent: None,
+                    inverse_bind_matrix: inverse_bind,
+                    local_matrix: joint_local,
+                }],
+            },
+        };
+
+        let mut pose = SkeletonPose::from_skeleton(&source.skeleton).unwrap();
+        pose.set_local_delta_matrix(0, euler_xyz_matrix(0.0, 0.0, 0.0)).unwrap();
+        let palette = pose.palette().unwrap();
+        let skin = blend_skin_matrices(&palette, [0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(transform_point(skin, [1.0, 0.0, 0.0]), [1.0, 0.0, 0.0]);
+    }
 
     #[test]
     fn scene_model_transform_scales_rotates_then_translates() {
