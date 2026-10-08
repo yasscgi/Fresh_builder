@@ -11,7 +11,9 @@ class NativeRigController extends ChangeNotifier {
   BridgeRigPoseSnapshot? _snapshot;
   Future<void>? _initialization;
   Future<void>? _fkFlush;
+  Future<void>? _ikFlush;
   _PendingFk? _pendingFk;
+  _PendingIk? _pendingIk;
   String? _error;
 
   BridgeRigMode get mode => _state?.mode ?? BridgeRigMode.none;
@@ -48,7 +50,9 @@ class NativeRigController extends ChangeNotifier {
 
   Future<void> reset() async {
     _pendingFk = null;
+    _pendingIk = null;
     await _fkFlush;
+    await _ikFlush;
     final session = await _requireSession();
     try {
       _state = await session.reset();
@@ -98,6 +102,7 @@ class NativeRigController extends ChangeNotifier {
 
   Future<void> beginGesture() async {
     await _flushPendingFk();
+    await _flushPendingIk();
     final session = await _requireSession();
     try {
       _state = await session.beginGesture();
@@ -135,8 +140,57 @@ class NativeRigController extends ChangeNotifier {
     _ensureFkFlush();
   }
 
+  void updateIkTarget({
+    required NativeViewportController viewport,
+    required String sceneKey,
+    required String effector,
+    required String upper,
+    required String lower,
+    required String end,
+    required double targetX,
+    required double targetY,
+    required double targetZ,
+    required double poleX,
+    required double poleY,
+    required double poleZ,
+  }) {
+    if (sceneKey.isEmpty ||
+        effector.trim().isEmpty ||
+        upper.trim().isEmpty ||
+        lower.trim().isEmpty ||
+        end.trim().isEmpty) {
+      return;
+    }
+    final values = [
+      targetX,
+      targetY,
+      targetZ,
+      poleX,
+      poleY,
+      poleZ,
+    ];
+    if (values.any((value) => !value.isFinite)) return;
+
+    _pendingIk = _PendingIk(
+      viewport: viewport,
+      sceneKey: sceneKey,
+      effector: effector,
+      upper: upper,
+      lower: lower,
+      end: end,
+      targetX: targetX,
+      targetY: targetY,
+      targetZ: targetZ,
+      poleX: poleX,
+      poleY: poleY,
+      poleZ: poleZ,
+    );
+    _ensureIkFlush();
+  }
+
   Future<void> commitGesture() async {
     await _flushPendingFk();
+    await _flushPendingIk();
     final session = await _requireSession();
     try {
       _state = await session.commitGesture();
@@ -153,7 +207,9 @@ class NativeRigController extends ChangeNotifier {
     required String sceneKey,
   }) async {
     _pendingFk = null;
+    _pendingIk = null;
     await _fkFlush;
+    await _ikFlush;
     final session = await _requireSession();
     try {
       _state = await session.cancelGesture();
@@ -259,6 +315,74 @@ class NativeRigController extends ChangeNotifier {
     }
   }
 
+  void _ensureIkFlush() {
+    if (_ikFlush != null) return;
+    final future = _flushIkLoop();
+    _ikFlush = future;
+    unawaited(
+      future.whenComplete(() {
+        _ikFlush = null;
+        if (_pendingIk != null) {
+          _ensureIkFlush();
+        }
+      }),
+    );
+  }
+
+  Future<void> _flushPendingIk() async {
+    while (_pendingIk != null || _ikFlush != null) {
+      if (_pendingIk != null && _ikFlush == null) {
+        _ensureIkFlush();
+      }
+      final active = _ikFlush;
+      if (active != null) {
+        await active;
+      }
+    }
+  }
+
+  Future<void> _flushIkLoop() async {
+    final session = await _requireSession();
+
+    try {
+      while (true) {
+        final pending = _pendingIk;
+        if (pending == null) break;
+        _pendingIk = null;
+
+        _state = await session.updateIkTarget(
+          effector: pending.effector,
+          upper: pending.upper,
+          lower: pending.lower,
+          end: pending.end,
+          targetX: pending.targetX,
+          targetY: pending.targetY,
+          targetZ: pending.targetZ,
+          poleX: pending.poleX,
+          poleY: pending.poleY,
+          poleZ: pending.poleZ,
+        );
+        await pending.viewport.setSceneTwoBoneIk(
+          sceneKey: pending.sceneKey,
+          upper: pending.upper,
+          lower: pending.lower,
+          end: pending.end,
+          targetX: pending.targetX,
+          targetY: pending.targetY,
+          targetZ: pending.targetZ,
+          poleX: pending.poleX,
+          poleY: pending.poleY,
+          poleZ: pending.poleZ,
+        );
+      }
+      _error = null;
+      notifyListeners();
+    } catch (error) {
+      _pendingIk = null;
+      _setError(error);
+    }
+  }
+
   Future<void> syncViewport(
     NativeViewportController viewport,
     String sceneKey,
@@ -275,6 +399,20 @@ class NativeRigController extends ChangeNotifier {
         x: fk.rotation.x,
         y: fk.rotation.y,
         z: fk.rotation.z,
+      );
+    }
+    for (final ik in snapshot.ik) {
+      await viewport.setSceneTwoBoneIk(
+        sceneKey: sceneKey,
+        upper: ik.upper,
+        lower: ik.lower,
+        end: ik.end,
+        targetX: ik.target.x,
+        targetY: ik.target.y,
+        targetZ: ik.target.z,
+        poleX: ik.pole.x,
+        poleY: ik.pole.y,
+        poleZ: ik.pole.z,
       );
     }
   }
@@ -296,6 +434,7 @@ class NativeRigController extends ChangeNotifier {
   @override
   void dispose() {
     _pendingFk = null;
+    _pendingIk = null;
     _session?.dispose();
     _session = null;
     super.dispose();
@@ -318,4 +457,35 @@ class _PendingFk {
   final double x;
   final double y;
   final double z;
+}
+
+
+class _PendingIk {
+  const _PendingIk({
+    required this.viewport,
+    required this.sceneKey,
+    required this.effector,
+    required this.upper,
+    required this.lower,
+    required this.end,
+    required this.targetX,
+    required this.targetY,
+    required this.targetZ,
+    required this.poleX,
+    required this.poleY,
+    required this.poleZ,
+  });
+
+  final NativeViewportController viewport;
+  final String sceneKey;
+  final String effector;
+  final String upper;
+  final String lower;
+  final String end;
+  final double targetX;
+  final double targetY;
+  final double targetZ;
+  final double poleX;
+  final double poleY;
+  final double poleZ;
 }
