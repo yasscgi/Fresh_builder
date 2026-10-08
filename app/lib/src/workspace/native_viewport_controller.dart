@@ -28,6 +28,8 @@ class NativeViewportController extends ChangeNotifier {
       <String, List<NativeSceneTransform>>{};
   final Map<String, NativeSceneTransform> _transformGestureOrigin =
       <String, NativeSceneTransform>{};
+  final Map<String, Future<void>> _transformWriteTail =
+      <String, Future<void>>{};
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -266,6 +268,7 @@ class NativeViewportController extends ChangeNotifier {
         _transformUndo.remove(sceneKey);
         _transformRedo.remove(sceneKey);
         _transformGestureOrigin.remove(sceneKey);
+        _transformWriteTail.remove(sceneKey);
       }
       _sceneError = null;
       await _markTextureFrame();
@@ -390,6 +393,7 @@ class NativeViewportController extends ChangeNotifier {
     _transformUndo.clear();
     _transformRedo.clear();
     _transformGestureOrigin.clear();
+    _transformWriteTail.clear();
     _sceneStatus = null;
     _sceneError = null;
     final session = _session;
@@ -412,6 +416,7 @@ class NativeViewportController extends ChangeNotifier {
   }
 
   Future<void> commitSceneTransformGesture(String sceneKey) async {
+    await _transformWriteTail[sceneKey];
     final origin = _transformGestureOrigin.remove(sceneKey);
     if (origin == null) return;
     final current = sceneTransform(sceneKey);
@@ -422,6 +427,7 @@ class NativeViewportController extends ChangeNotifier {
   }
 
   Future<void> cancelSceneTransformGesture(String sceneKey) async {
+    await _transformWriteTail[sceneKey];
     final origin = _transformGestureOrigin.remove(sceneKey);
     if (origin == null) return;
     await setSceneTransform(sceneKey: sceneKey, transform: origin);
@@ -501,35 +507,45 @@ class NativeViewportController extends ChangeNotifier {
   Future<void> setSceneTransform({
     required String sceneKey,
     required NativeSceneTransform transform,
-  }) async {
-    final session = _session;
-    if (session == null || _error != null) return;
+  }) {
+    final previous = _transformWriteTail[sceneKey] ?? Future<void>.value();
+    final next = previous.then((_) async {
+      final session = _session;
+      if (session == null || _error != null) return;
 
-    try {
-      await session.setSceneModelTransform(
-        sceneKey: sceneKey,
-        transform: BridgeSceneTransform(
-          translation: BridgeVec3(
-            x: transform.tx,
-            y: transform.ty,
-            z: transform.tz,
+      try {
+        await session.setSceneModelTransform(
+          sceneKey: sceneKey,
+          transform: BridgeSceneTransform(
+            translation: BridgeVec3(
+              x: transform.tx,
+              y: transform.ty,
+              z: transform.tz,
+            ),
+            rotation: BridgeVec3(
+              x: transform.rx,
+              y: transform.ry,
+              z: transform.rz,
+            ),
+            scale: transform.scale,
           ),
-          rotation: BridgeVec3(
-            x: transform.rx,
-            y: transform.ry,
-            z: transform.rz,
-          ),
-          scale: transform.scale,
-        ),
-      );
-      _sceneTransforms[sceneKey] = transform;
-      await _markTextureFrame();
-      notifyListeners();
-    } catch (error) {
-      _sceneError = error.toString();
-      notifyListeners();
-      rethrow;
-    }
+        );
+        _sceneTransforms[sceneKey] = transform;
+        await _markTextureFrame();
+        notifyListeners();
+      } catch (error) {
+        _sceneError = error.toString();
+        notifyListeners();
+        rethrow;
+      }
+    });
+
+    _transformWriteTail[sceneKey] = next;
+    return next.whenComplete(() {
+      if (identical(_transformWriteTail[sceneKey], next)) {
+        _transformWriteTail.remove(sceneKey);
+      }
+    });
   }
 
   Future<void> setSceneFkRotation({
