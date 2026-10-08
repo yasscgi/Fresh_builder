@@ -489,6 +489,36 @@ impl NativeViewportSession {
         Ok(points)
     }
 
+    pub fn scene_joint_screen_drag_delta(
+        &self,
+        scene_key: String,
+        bone: String,
+        delta_x_pixels: f32,
+        delta_y_pixels: f32,
+    ) -> Result<BridgeVec3, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+        let joint_index = scene
+            .joint_index(&bone)
+            .ok_or_else(|| format!("Bone {bone} was not found in scene {scene_key}"))?;
+        let world = scene.joint_world_position(joint_index)?;
+        let (_, height) = inner.renderer.size();
+        let delta = inner.camera.screen_drag_world_delta(
+            world,
+            delta_x_pixels,
+            delta_y_pixels,
+            height as f32,
+        );
+        Ok(BridgeVec3 {
+            x: delta[0],
+            y: delta[1],
+            z: delta[2],
+        })
+    }
+
     pub fn remove_scene(&self, scene_key: String) -> Result<bool, String> {
         let mut inner = self.lock_inner()?;
         let removed = inner.scenes.remove(&scene_key).is_some();
