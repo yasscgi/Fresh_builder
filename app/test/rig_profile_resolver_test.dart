@@ -121,6 +121,42 @@ void main() {
     );
   });
 
+  test('parses optional FK rotation limits and clamps safely', () {
+    final data = BuilderCloudData(
+      config: BuilderCloudConfig(
+        productId: 'p4',
+        mode: 'character',
+        config: {
+          'rigProfile': {
+            'format': 'freshstl_mixamo_rig_v3',
+            'bones': [
+              {
+                'semantic': 'LeftLowerArm',
+                'source_name': 'mixamorig:LeftForeArm',
+                'hinge_axis': [1, 0, 0],
+                'rotation_limits': {
+                  'x': [-1.2, 0.15],
+                },
+              },
+            ],
+          },
+        },
+      ),
+      categories: const [],
+      assets: const [],
+      articulatedChains: const [],
+      jointStandards: const [],
+      surfaceZones: const [],
+    );
+
+    final constraint =
+        resolveRigBoneConstraints(data: data)['mixamorig:LeftForeArm']!;
+    expect(constraint.clamp('x', -2.0), -1.2);
+    expect(constraint.clamp('x', 0.8), 0.15);
+    expect(constraint.clamp('x', -0.4), -0.4);
+    expect(constraint.clamp('y', 9.0), 9.0);
+  });
+
   test('infers four standard Mixamo chains when metadata is absent', () {
     const joints = [
       'mixamorig:LeftArm',
