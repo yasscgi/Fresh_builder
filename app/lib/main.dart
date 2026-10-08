@@ -182,7 +182,37 @@ class _BuilderPageState extends State<BuilderPage> {
       final safeName = rawName
           .toLowerCase()
           .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-          .replaceAll(RegExp(r'^-+|-+BridgeRigMode mode) async {
+          .replaceAll(RegExp(r'^-+|-+$'), '');
+      final stamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      final fileName =
+          '${safeName.isEmpty ? 'fresh-builder' : safeName}-$stamp.stl';
+      final path =
+          '${directory.path}${Platform.pathSeparator}$fileName';
+
+      final result = await _nativeViewport.exportCurrentStl(path);
+      if (!mounted) return;
+      if (result == null) {
+        _workspace.setBusy(false, status: 'STL export unavailable');
+        return;
+      }
+
+      _workspace.setBusy(
+        false,
+        status:
+            'STL saved · ${result.sceneCount} scenes · '
+            '${result.meshCount} meshes · '
+            '${result.triangleCount} triangles',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'STL export failed');
+    }
+  }
+
+  Future<void> _setRigMode(BridgeRigMode mode) async {
     await _nativeRig.setMode(mode);
     if (!mounted) return;
     _workspace.setRigVisible(_nativeRig.mode != BridgeRigMode.none);
