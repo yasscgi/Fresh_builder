@@ -98,6 +98,33 @@ final class BuilderDesignPersistence {
     };
   }
 
+
+  Future<BuilderDesignSnapshot?> loadSnapshot({
+    required String productName,
+  }) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final safeName = _safeName(productName);
+    final fileName =
+        '${safeName.isEmpty ? 'fresh-builder' : safeName}.freshbuilder.json';
+    final path = '${directory.path}${Platform.pathSeparator}$fileName';
+    final file = File(path);
+    if (!await file.exists()) return null;
+
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map) {
+      throw const FormatException('Builder design root must be an object.');
+    }
+    final json = decoded.map((key, value) => MapEntry(key.toString(), value));
+    if (json['format'] != 'fresh_builder_design') {
+      throw const FormatException('Unsupported Builder design format.');
+    }
+    final version = (json['version'] as num?)?.toInt() ?? 0;
+    if (version != 5) {
+      throw FormatException('Unsupported Builder design version: $version');
+    }
+    return BuilderDesignSnapshot.fromJson(json);
+  }
+
   Future<String> saveSnapshot({
     required String productId,
     required String productName,
@@ -168,4 +195,87 @@ final class BuilderExportResult {
   final int sceneCount;
   final int meshCount;
   final int triangleCount;
+}
+
+
+final class BuilderDesignSnapshot {
+  const BuilderDesignSnapshot({
+    required this.productId,
+    required this.assets,
+    required this.transforms,
+    required this.pose,
+  });
+
+  final String productId;
+  final List<BuilderSavedAsset> assets;
+  final Map<String, NativeSceneTransform> transforms;
+  final Map<String, dynamic> pose;
+
+  factory BuilderDesignSnapshot.fromJson(Map<String, dynamic> json) {
+    final assets = <BuilderSavedAsset>[];
+    for (final raw in (json['assets'] as List? ?? const [])) {
+      if (raw is! Map) continue;
+      final row = raw.map((key, value) => MapEntry(key.toString(), value));
+      final sceneKey = row['scene_key']?.toString() ?? '';
+      final assetId = row['asset_id']?.toString() ?? '';
+      if (sceneKey.isEmpty || assetId.isEmpty) continue;
+      assets.add(
+        BuilderSavedAsset(
+          sceneKey: sceneKey,
+          assetId: assetId,
+          variationId: row['variation_id']?.toString(),
+        ),
+      );
+    }
+
+    final transforms = <String, NativeSceneTransform>{};
+    for (final raw in (json['asset_transforms'] as List? ?? const [])) {
+      if (raw is! Map) continue;
+      final row = raw.map((key, value) => MapEntry(key.toString(), value));
+      final sceneKey = row['scene_key']?.toString() ?? '';
+      final translation = row['translation'] as List? ?? const [];
+      final rotation = row['rotation_xyz'] as List? ?? const [];
+      final scale = (row['scale'] as num?)?.toDouble() ?? 1.0;
+      if (sceneKey.isEmpty ||
+          translation.length < 3 ||
+          rotation.length < 3 ||
+          !scale.isFinite ||
+          scale <= 0) {
+        continue;
+      }
+      transforms[sceneKey] = NativeSceneTransform(
+        tx: (translation[0] as num?)?.toDouble() ?? 0,
+        ty: (translation[1] as num?)?.toDouble() ?? 0,
+        tz: (translation[2] as num?)?.toDouble() ?? 0,
+        rx: (rotation[0] as num?)?.toDouble() ?? 0,
+        ry: (rotation[1] as num?)?.toDouble() ?? 0,
+        rz: (rotation[2] as num?)?.toDouble() ?? 0,
+        scale: scale,
+      );
+    }
+
+    final rawPose = json['pose'];
+    final pose = rawPose is Map
+        ? rawPose.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+
+    return BuilderDesignSnapshot(
+      productId: json['product_id']?.toString() ?? '',
+      assets: assets,
+      transforms: transforms,
+      pose: pose,
+    );
+  }
+}
+
+final class BuilderSavedAsset {
+  const BuilderSavedAsset({
+    required this.sceneKey,
+    required this.assetId,
+    required this.variationId,
+  });
+
+  final String sceneKey;
+  final String assetId;
+  final String? variationId;
 }
