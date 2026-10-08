@@ -198,11 +198,19 @@ class _BuilderPageState extends State<BuilderPage> {
         viewport: _nativeViewport,
         rig: _nativeRig,
       );
+      final cloudId = await _persistence.saveCloudSnapshot(
+        productId: product.id,
+        productName: product.name,
+        sceneSelections: _sceneSelections,
+        viewport: _nativeViewport,
+        rig: _nativeRig,
+      );
       if (!mounted) return;
       _workspace.setBusy(
         false,
-        status:
-            'Design v5 saved · ${_sceneSelections.length} scene selections',
+        status: cloudId == null
+            ? 'Design v5 saved locally · ${_sceneSelections.length} scenes'
+            : 'Design v5 saved locally + cloud · ${_sceneSelections.length} scenes',
       );
     } catch (_) {
       if (!mounted) return;
@@ -268,7 +276,8 @@ class _BuilderPageState extends State<BuilderPage> {
 
     _workspace.setBusy(true, status: 'Restoring Design v5…');
     try {
-      final saved = await _persistence.loadSnapshot(
+      final saved = await _persistence.loadBestSnapshot(
+        productId: product.id,
         productName: product.name,
       );
       if (saved == null) {
