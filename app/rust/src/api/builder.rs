@@ -440,6 +440,21 @@ impl NativeViewportSession {
         &self,
         scene_key: String,
     ) -> Result<Vec<BridgeJointScreenPoint>, String> {
+        self.scene_joint_screen_positions_internal(scene_key, true)
+    }
+
+    pub fn scene_joint_screen_positions_fast(
+        &self,
+        scene_key: String,
+    ) -> Result<Vec<BridgeJointScreenPoint>, String> {
+        self.scene_joint_screen_positions_internal(scene_key, false)
+    }
+
+    fn scene_joint_screen_positions_internal(
+        &self,
+        scene_key: String,
+        depth_aware: bool,
+    ) -> Result<Vec<BridgeJointScreenPoint>, String> {
         let inner = self.lock_inner()?;
         let scene = inner
             .scenes
@@ -449,7 +464,11 @@ impl NativeViewportSession {
         let (width, height) = inner.renderer.size();
         let aspect = width as f32 / height.max(1) as f32;
         let view_projection = inner.camera.view_projection(aspect);
-        let depth_buffer = inner.renderer.read_depth32f().ok();
+        let depth_buffer = if depth_aware {
+            inner.renderer.read_depth32f().ok()
+        } else {
+            None
+        };
 
         let mut points = Vec::with_capacity(scene.joint_names().len());
         for (index, bone) in scene.joint_names().iter().enumerate() {
