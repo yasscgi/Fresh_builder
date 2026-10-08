@@ -349,7 +349,11 @@ class _BuilderPageState extends State<BuilderPage> {
       _workspace.setBusy(
         false,
         status:
-            '$state · ${report.triangleCount} tris · '
+            '$state · '
+            '${report.sizeXmm.toStringAsFixed(1)} × '
+            '${report.sizeYmm.toStringAsFixed(1)} × '
+            '${report.sizeZmm.toStringAsFixed(1)} mm · '
+            '${report.triangleCount} tris · '
             '${report.boundaryEdges} boundary · '
             '${report.nonManifoldEdges} non-manifold · '
             '${report.degenerateTriangles} degenerate',
