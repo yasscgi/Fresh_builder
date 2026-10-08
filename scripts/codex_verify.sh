@@ -12,6 +12,9 @@ cargo fmt --all -- --check
 cargo test
 
 cd "$ROOT/app"
+if [[ ! -d "hook" && ! -d "rust_builder" ]]; then
+  flutter_rust_bridge_codegen integrate --integration-backend native-assets
+fi
 flutter_rust_bridge_codegen generate
 flutter pub get
 dart format --output=none --set-exit-if-changed lib test
