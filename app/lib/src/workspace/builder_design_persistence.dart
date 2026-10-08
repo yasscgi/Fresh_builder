@@ -149,6 +149,50 @@ final class BuilderDesignPersistence {
     return path;
   }
 
+  Future<BuilderPrintValidationResult> validateCurrentPrint({
+    required NativeViewportController viewport,
+  }) async {
+    final report = await viewport.validateCurrentPrint();
+    if (report == null) {
+      throw StateError('Native print validation is unavailable.');
+    }
+    return BuilderPrintValidationResult(
+      meshCount: report.meshCount,
+      triangleCount: report.triangleCount,
+      degenerateTriangles: report.degenerateTriangles,
+      boundaryEdges: report.boundaryEdges,
+      nonManifoldEdges: report.nonManifoldEdges,
+      invalidIndices: report.invalidIndices,
+      watertight: report.watertight,
+    );
+  }
+
+  Future<BuilderExportResult> exportCurrent3mf({
+    required String productName,
+    required NativeViewportController viewport,
+  }) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final safeName = _safeName(productName);
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-');
+    final fileName =
+        '${safeName.isEmpty ? 'fresh-builder' : safeName}-$stamp.3mf';
+    final path = '${directory.path}${Platform.pathSeparator}$fileName';
+
+    final status = await viewport.exportCurrent3mf(path);
+    if (status == null) {
+      throw StateError('Native 3MF export is unavailable.');
+    }
+    return BuilderExportResult(
+      path: status.path,
+      sceneCount: status.sceneCount,
+      meshCount: status.meshCount,
+      triangleCount: status.triangleCount,
+    );
+  }
+
   Future<BuilderExportResult> exportCurrentStl({
     required String productName,
     required NativeViewportController viewport,
@@ -278,4 +322,25 @@ final class BuilderSavedAsset {
   final String sceneKey;
   final String assetId;
   final String? variationId;
+}
+
+
+final class BuilderPrintValidationResult {
+  const BuilderPrintValidationResult({
+    required this.meshCount,
+    required this.triangleCount,
+    required this.degenerateTriangles,
+    required this.boundaryEdges,
+    required this.nonManifoldEdges,
+    required this.invalidIndices,
+    required this.watertight,
+  });
+
+  final int meshCount;
+  final int triangleCount;
+  final int degenerateTriangles;
+  final int boundaryEdges;
+  final int nonManifoldEdges;
+  final int invalidIndices;
+  final bool watertight;
 }
