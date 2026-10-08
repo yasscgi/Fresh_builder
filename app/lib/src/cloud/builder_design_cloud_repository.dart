@@ -82,6 +82,53 @@ final class BuilderDesignCloudRepository {
     ];
   }
 
+  Future<void> renameDesign({
+    required String designId,
+    required String name,
+  }) async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Design name is required.');
+    }
+    final safeName = trimmed.substring(
+      0,
+      trimmed.length.clamp(0, 80).toInt(),
+    );
+
+    await _client
+        .from('saved_builder_designs')
+        .update({
+          'name': safeName,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', designId)
+        .eq('user_id', userId);
+  }
+
+  Future<String?> duplicateDesign(BuilderCloudSavedDesign source) async {
+    final userId = currentUserId;
+    if (userId == null) return null;
+
+    final row = await _client
+        .from('saved_builder_designs')
+        .insert({
+          'user_id': userId,
+          'product_id': source.productId,
+          'name': '${source.name} Copy'.substring(
+            0,
+            ('${source.name} Copy').length.clamp(0, 80).toInt(),
+          ),
+          'design': source.design,
+        })
+        .select('id')
+        .single();
+
+    return row['id']?.toString();
+  }
+
   Future<void> deleteDesign(String designId) async {
     final userId = currentUserId;
     if (userId == null) return;
