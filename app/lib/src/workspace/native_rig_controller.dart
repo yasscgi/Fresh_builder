@@ -227,7 +227,9 @@ class NativeRigController extends ChangeNotifier {
     required String sceneKey,
   }) async {
     _pendingFk = null;
+    _pendingIk = null;
     await _fkFlush;
+    await _ikFlush;
     final session = await _requireSession();
     try {
       _state = await session.undo();
@@ -245,7 +247,9 @@ class NativeRigController extends ChangeNotifier {
     required String sceneKey,
   }) async {
     _pendingFk = null;
+    _pendingIk = null;
     await _fkFlush;
+    await _ikFlush;
     final session = await _requireSession();
     try {
       _state = await session.redo();
