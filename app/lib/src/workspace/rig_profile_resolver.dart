@@ -6,6 +6,7 @@ class RigBoneConstraintBinding {
     required this.primaryAxis,
     required this.hingeAxis,
     required this.allowedAxes,
+    required this.rotationLimits,
     required this.source,
   });
 
@@ -13,9 +14,16 @@ class RigBoneConstraintBinding {
   final List<double>? primaryAxis;
   final List<double>? hingeAxis;
   final Set<String> allowedAxes;
+  final Map<String, ({double min, double max})> rotationLimits;
   final String source;
 
   bool allows(String axis) => allowedAxes.contains(axis.toLowerCase());
+
+  double clamp(String axis, double value) {
+    final limit = rotationLimits[axis.toLowerCase()];
+    if (limit == null || !value.isFinite) return value;
+    return value.clamp(limit.min, limit.max);
+  }
 }
 
 Map<String, RigBoneConstraintBinding> resolveRigBoneConstraints({
@@ -59,8 +67,41 @@ Map<String, RigBoneConstraintBinding> _parseRigBoneConstraints(JsonMap rig) {
       primaryAxis: primary,
       hingeAxis: hinge,
       allowedAxes: allowed,
+      rotationLimits: _rotationLimits(
+        row['rotation_limits'] ?? row['rotationLimits'] ?? row['limits'],
+      ),
       source: 'rig_v3',
     );
+  }
+  return out;
+}
+
+Map<String, ({double min, double max})> _rotationLimits(Object? value) {
+  final map = jsonMap(value);
+  if (map.isEmpty) return const <String, ({double min, double max})>{};
+
+  final out = <String, ({double min, double max})>{};
+  for (final axis in const ['x', 'y', 'z']) {
+    final raw = map[axis] ?? map[axis.toUpperCase()];
+    double? min;
+    double? max;
+
+    if (raw is List && raw.length >= 2) {
+      min = (raw[0] as num?)?.toDouble();
+      max = (raw[1] as num?)?.toDouble();
+    } else {
+      final row = jsonMap(raw);
+      min = (row['min'] as num?)?.toDouble();
+      max = (row['max'] as num?)?.toDouble();
+    }
+
+    if (min == null || max == null || !min.isFinite || !max.isFinite) continue;
+    if (min > max) {
+      final swap = min;
+      min = max;
+      max = swap;
+    }
+    out[axis] = (min: min, max: max);
   }
   return out;
 }
