@@ -181,3 +181,17 @@ Still pending:
 - hand open/close connection to actual finger bones or morph targets.
 
 The solver itself is no longer the main IK gap. The next product-facing milestone is chain binding + interactive IK controls/picking on top of this native path.
+
+## Continuation update — 2026-10-08 (interactive IK/FK UI)
+
+- Added Rig V3 chain resolver in Flutter. It prefers authored freshstl_mixamo_rig_v3 metadata from Builder config/base-character metadata and falls back to standard Mixamo names only when authored data is absent.
+- Rig V3 semantic chain names are mapped through bones[].source_name/sourceName so custom source joint names work.
+- Added tests for authored chains, semantic->source mapping, four standard Mixamo fallback chains and incomplete-chain rejection.
+- Native viewport can now query current world position for any loaded joint.
+- Desktop IK editor now selects a resolved effector and manipulates X/Y/Z target offsets around the current hand/foot position. Range is based on current two-bone reach.
+- Pole point is derived from the Rig V3 pole direction and current chain reach.
+- IK slider gestures use the same NativeRigSession transient history, navigation lock, coalescing, WGPU palette update and one-undo-entry-on-release rules as FK.
+- Mobile IK/FK rail now opens a bottom-sheet editor backed by the same native controllers; mobile buttons are no longer mode-only toggles.
+- Closing a mobile editor during an active pose gesture cancels/resyncs the authoritative native pose.
+
+Remaining high-priority work: executable CI validation, true viewport picking/3D gizmos/IK handles, Rig V3 hinge/primary-axis constraints, and real hand/finger deformation.
