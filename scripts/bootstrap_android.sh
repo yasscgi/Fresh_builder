@@ -6,6 +6,9 @@ APP="$ROOT/app"
 cd "$APP"
 flutter create --project-name fresh_builder --org com.freshstl --platforms=android .
 flutter pub get
+if [[ ! -d "hook" && ! -d "rust_builder" ]]; then
+  flutter_rust_bridge_codegen integrate --integration-backend native-assets
+fi
 flutter_rust_bridge_codegen generate
 
 cd "$APP/packages/fresh_builder_viewport_texture"
