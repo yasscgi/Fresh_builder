@@ -216,14 +216,15 @@ class _BuilderPageState extends State<BuilderPage> {
     if (bone == null || !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) return;
     final constraint = resolveRigBoneConstraints(data: _cloudData)[bone];
     if (constraint != null && !constraint.allows(axis)) return;
+    final clampedValue = constraint?.clamp(axis, value) ?? value;
     final current = _nativeRig.selectedFkRotation;
     _nativeRig.updateFkRotation(
       viewport: _nativeViewport,
       sceneKey: _baseCharacterSceneKey,
       bone: bone,
-      x: axis == 'x' ? value : (current?.x ?? 0.0),
-      y: axis == 'y' ? value : (current?.y ?? 0.0),
-      z: axis == 'z' ? value : (current?.z ?? 0.0),
+      x: axis == 'x' ? clampedValue : (current?.x ?? 0.0),
+      y: axis == 'y' ? clampedValue : (current?.y ?? 0.0),
+      z: axis == 'z' ? clampedValue : (current?.z ?? 0.0),
     );
   }
 
@@ -1892,6 +1893,8 @@ class _FkEditor extends StatelessWidget {
             _FkAxisSlider(
               axis: 'X',
               value: rotation?.x ?? 0,
+              min: boneConstraints[selected]?.rotationLimits['x']?.min,
+              max: boneConstraints[selected]?.rotationLimits['x']?.max,
               onStart: onGestureStart,
               onChanged: (value) => onAxisChanged('x', value),
               onEnd: onGestureEnd,
@@ -1900,6 +1903,8 @@ class _FkEditor extends StatelessWidget {
             _FkAxisSlider(
               axis: 'Y',
               value: rotation?.y ?? 0,
+              min: boneConstraints[selected]?.rotationLimits['y']?.min,
+              max: boneConstraints[selected]?.rotationLimits['y']?.max,
               onStart: onGestureStart,
               onChanged: (value) => onAxisChanged('y', value),
               onEnd: onGestureEnd,
@@ -1908,6 +1913,8 @@ class _FkEditor extends StatelessWidget {
             _FkAxisSlider(
               axis: 'Z',
               value: rotation?.z ?? 0,
+              min: boneConstraints[selected]?.rotationLimits['z']?.min,
+              max: boneConstraints[selected]?.rotationLimits['z']?.max,
               onStart: onGestureStart,
               onChanged: (value) => onAxisChanged('z', value),
               onEnd: onGestureEnd,
@@ -1930,6 +1937,8 @@ class _FkAxisSlider extends StatelessWidget {
   const _FkAxisSlider({
     required this.axis,
     required this.value,
+    this.min,
+    this.max,
     required this.onStart,
     required this.onChanged,
     required this.onEnd,
@@ -1937,22 +1946,25 @@ class _FkAxisSlider extends StatelessWidget {
 
   final String axis;
   final double value;
+  final double? min;
+  final double? max;
   final VoidCallback onStart;
   final ValueChanged<double> onChanged;
   final VoidCallback onEnd;
 
   @override
   Widget build(BuildContext context) {
-    const limit = math.pi;
+    final minValue = min ?? -math.pi;
+    final maxValue = max ?? math.pi;
     return Row(
       children: [
         SizedBox(width: 18, child: Text(axis,
           style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900))),
         Expanded(
           child: Slider(
-            min: -limit,
-            max: limit,
-            value: value.clamp(-limit, limit),
+            min: minValue,
+            max: maxValue,
+            value: value.clamp(minValue, maxValue),
             onChangeStart: (_) => onStart(),
             onChanged: onChanged,
             onChangeEnd: (_) => onEnd(),
@@ -2617,13 +2629,24 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
             : (details.delta.dx - details.delta.dy) * 0.5;
     _delta += movement * 0.012;
 
+    final constraint = widget.boneConstraints[bone];
+    final nextX = axis == 'x'
+        ? (constraint?.clamp('x', base.x + _delta) ?? base.x + _delta)
+        : base.x;
+    final nextY = axis == 'y'
+        ? (constraint?.clamp('y', base.y + _delta) ?? base.y + _delta)
+        : base.y;
+    final nextZ = axis == 'z'
+        ? (constraint?.clamp('z', base.z + _delta) ?? base.z + _delta)
+        : base.z;
+
     widget.rigController.updateFkRotation(
       viewport: widget.nativeController,
       sceneKey: widget.sceneKey,
       bone: bone,
-      x: axis == 'x' ? base.x + _delta : base.x,
-      y: axis == 'y' ? base.y + _delta : base.y,
-      z: axis == 'z' ? base.z + _delta : base.z,
+      x: nextX,
+      y: nextY,
+      z: nextZ,
     );
   }
 
