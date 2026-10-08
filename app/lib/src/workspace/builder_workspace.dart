@@ -8,7 +8,6 @@ class BuilderWorkspaceController extends ChangeNotifier {
   BuilderTool _tool = BuilderTool.select;
   bool _navigationLocked = false;
   bool _showRig = false;
-  bool _handOpen = true;
   bool _busy = false;
   String? _status;
   String _viewPreset = 'front';
@@ -16,7 +15,6 @@ class BuilderWorkspaceController extends ChangeNotifier {
   BuilderTool get tool => _tool;
   bool get navigationLocked => _navigationLocked;
   bool get showRig => _showRig;
-  bool get handOpen => _handOpen;
   bool get busy => _busy;
   String? get status => _status;
   String get viewPreset => _viewPreset;
@@ -46,8 +44,25 @@ class BuilderWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleHand() {
-    _handOpen = !_handOpen;
+
+  void beginAssetTransformGesture() {
+    if (_navigationLocked) return;
+    _navigationLocked = true;
+    _status = 'Editing asset';
+    notifyListeners();
+  }
+
+  void commitAssetTransformGesture() {
+    if (!_navigationLocked) return;
+    _navigationLocked = false;
+    _status = 'Asset transform committed';
+    notifyListeners();
+  }
+
+  void cancelAssetTransformGesture() {
+    if (!_navigationLocked) return;
+    _navigationLocked = false;
+    _status = null;
     notifyListeners();
   }
 

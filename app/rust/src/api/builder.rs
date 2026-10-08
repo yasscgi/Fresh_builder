@@ -1,8 +1,11 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
-use builder_io::{decode_gltf_scene, detect_asset_format, inspect_scene_file, AssetFormat, ImportReadiness};
+use builder_io::{
+    decode_gltf_scene, detect_asset_format, inspect_scene_file, validate_print_scene,
+    write_3mf, write_binary_stl, AssetFormat, ImportReadiness,
+};
 use std::{collections::BTreeMap, sync::Mutex};
 
-use builder_render::{GpuScene, ViewPreset, ViewportCamera, ViewportRenderer};
+use builder_render::{GpuScene, RenderScene, ViewPreset, ViewportCamera, ViewportRenderer};
 use flutter_rust_bridge::frb;
 
 #[frb(init)]
@@ -90,6 +93,15 @@ pub struct BridgeViewportSize {
 }
 
 #[derive(Clone, Debug)]
+pub struct BridgeJointScreenPoint {
+    pub bone: String,
+    pub x: f32,
+    pub y: f32,
+    pub depth: f32,
+    pub visible: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct LocalAssetInfo {
     pub path: String,
     pub format: String,
@@ -139,6 +151,40 @@ pub enum BridgeViewPreset {
     Bottom,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeScreenPoint {
+    pub x: f32,
+    pub y: f32,
+    pub depth: f32,
+    pub visible: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct BridgePrintValidation {
+    pub mesh_count: u32,
+    pub triangle_count: u32,
+    pub degenerate_triangles: u32,
+    pub boundary_edges: u32,
+    pub non_manifold_edges: u32,
+    pub invalid_indices: u32,
+    pub watertight: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct BridgeExportStatus {
+    pub path: String,
+    pub scene_count: u32,
+    pub mesh_count: u32,
+    pub triangle_count: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeSceneTransform {
+    pub translation: BridgeVec3,
+    pub rotation: BridgeVec3,
+    pub scale: f32,
+}
+
 #[frb(opaque)]
 pub struct NativeViewportSession {
     inner: Mutex<NativeViewportSessionInner>,
@@ -179,7 +225,7 @@ pub fn core_status() -> CoreStatus {
     CoreStatus {
         name: "Fresh Builder Native Core".to_owned(),
         bridge_version: env!("CARGO_PKG_VERSION").to_owned(),
-        design_version: 4,
+        design_version: 5,
         rig_profile: "freshstl_mixamo_rig_v3".to_owned(),
     }
 }
@@ -397,6 +443,299 @@ impl NativeViewportSession {
         }
     }
 
+    pub fn scene_joint_names(&self, scene_key: String) -> Result<Vec<String>, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+        Ok(scene.joint_names().to_vec())
+    }
+
+    pub fn scene_joint_world_position(
+        &self,
+        scene_key: String,
+        bone: String,
+    ) -> Result<BridgeVec3, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+        let joint_index = scene
+            .joint_index(&bone)
+            .ok_or_else(|| format!("Bone {bone} was not found in scene {scene_key}"))?;
+        let position = scene.joint_world_position(joint_index)?;
+        Ok(BridgeVec3 {
+            x: position[0],
+            y: position[1],
+            z: position[2],
+        })
+    }
+
+    pub fn world_point_screen_position(
+        &self,
+        point: BridgeVec3,
+    ) -> Result<BridgeScreenPoint, String> {
+        let inner = self.lock_inner()?;
+        let (width, height) = inner.renderer.size();
+        let aspect = width as f32 / height.max(1) as f32;
+        let clip = project_clip(
+            inner.camera.view_projection(aspect),
+            [point.x, point.y, point.z],
+        );
+        let w = clip[3];
+        if !clip.iter().all(|value| value.is_finite()) || w <= 1.0e-6 {
+            return Ok(BridgeScreenPoint {
+                x: 0.0,
+                y: 0.0,
+                depth: 1.0,
+                visible: false,
+            });
+        }
+
+        let ndc_x = clip[0] / w;
+        let ndc_y = clip[1] / w;
+        let ndc_z = clip[2] / w;
+        Ok(BridgeScreenPoint {
+            x: (ndc_x * 0.5 + 0.5) * width as f32,
+            y: (1.0 - (ndc_y * 0.5 + 0.5)) * height as f32,
+            depth: ndc_z,
+            visible: ndc_x >= -1.0
+                && ndc_x <= 1.0
+                && ndc_y >= -1.0
+                && ndc_y <= 1.0
+                && ndc_z >= 0.0
+                && ndc_z <= 1.0,
+        })
+    }
+
+    pub fn screen_drag_world_delta_at(
+        &self,
+        point: BridgeVec3,
+        delta_x_pixels: f32,
+        delta_y_pixels: f32,
+    ) -> Result<BridgeVec3, String> {
+        let inner = self.lock_inner()?;
+        let (_, height) = inner.renderer.size();
+        let delta = inner.camera.screen_drag_world_delta(
+            [point.x, point.y, point.z],
+            delta_x_pixels,
+            delta_y_pixels,
+            height as f32,
+        );
+        Ok(BridgeVec3 {
+            x: delta[0],
+            y: delta[1],
+            z: delta[2],
+        })
+    }
+
+    pub fn scene_joint_screen_positions(
+        &self,
+        scene_key: String,
+    ) -> Result<Vec<BridgeJointScreenPoint>, String> {
+        self.scene_joint_screen_positions_internal(scene_key, true)
+    }
+
+    pub fn scene_joint_screen_positions_fast(
+        &self,
+        scene_key: String,
+    ) -> Result<Vec<BridgeJointScreenPoint>, String> {
+        self.scene_joint_screen_positions_internal(scene_key, false)
+    }
+
+    fn scene_joint_screen_positions_internal(
+        &self,
+        scene_key: String,
+        depth_aware: bool,
+    ) -> Result<Vec<BridgeJointScreenPoint>, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+
+        let (width, height) = inner.renderer.size();
+        let aspect = width as f32 / height.max(1) as f32;
+        let view_projection = inner.camera.view_projection(aspect);
+        let depth_buffer = if depth_aware {
+            inner.renderer.read_depth32f().ok()
+        } else {
+            None
+        };
+
+        let mut points = Vec::with_capacity(scene.joint_names().len());
+        for (index, bone) in scene.joint_names().iter().enumerate() {
+            let world = scene.joint_world_position(index)?;
+            let clip = project_clip(view_projection, world);
+            let w = clip[3];
+            let finite = clip.iter().all(|value| value.is_finite());
+            let in_front = finite && w > 1.0e-6;
+
+            if !in_front {
+                points.push(BridgeJointScreenPoint {
+                    bone: bone.clone(),
+                    x: 0.0,
+                    y: 0.0,
+                    depth: 1.0,
+                    visible: false,
+                });
+                continue;
+            }
+
+            let ndc_x = clip[0] / w;
+            let ndc_y = clip[1] / w;
+            let ndc_z = clip[2] / w;
+            let screen_x = (ndc_x * 0.5 + 0.5) * width as f32;
+            let screen_y = (1.0 - (ndc_y * 0.5 + 0.5)) * height as f32;
+
+            let in_view =
+                ndc_x >= -1.05 && ndc_x <= 1.05 &&
+                ndc_y >= -1.05 && ndc_y <= 1.05 &&
+                ndc_z >= 0.0 && ndc_z <= 1.0;
+
+            let depth_visible = if in_view {
+                match &depth_buffer {
+                    Some(depth) => joint_is_depth_visible(
+                        depth,
+                        width,
+                        height,
+                        screen_x,
+                        screen_y,
+                        ndc_z,
+                    ),
+                    None => true,
+                }
+            } else {
+                false
+            };
+
+            points.push(BridgeJointScreenPoint {
+                bone: bone.clone(),
+                x: screen_x,
+                y: screen_y,
+                depth: ndc_z,
+                visible: in_view && depth_visible,
+            });
+        }
+
+        Ok(points)
+    }
+
+    pub fn scene_joint_screen_drag_delta(
+        &self,
+        scene_key: String,
+        bone: String,
+        delta_x_pixels: f32,
+        delta_y_pixels: f32,
+    ) -> Result<BridgeVec3, String> {
+        let inner = self.lock_inner()?;
+        let scene = inner
+            .scenes
+            .get(&scene_key)
+            .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+        let joint_index = scene
+            .joint_index(&bone)
+            .ok_or_else(|| format!("Bone {bone} was not found in scene {scene_key}"))?;
+        let world = scene.joint_world_position(joint_index)?;
+        let (_, height) = inner.renderer.size();
+        let delta = inner.camera.screen_drag_world_delta(
+            world,
+            delta_x_pixels,
+            delta_y_pixels,
+            height as f32,
+        );
+        Ok(BridgeVec3 {
+            x: delta[0],
+            y: delta[1],
+            z: delta[2],
+        })
+    }
+
+    fn baked_merged_scene(&self) -> Result<(RenderScene, u32), String> {
+        let inner = self.lock_inner()?;
+        if inner.scenes.is_empty() {
+            return Err("Builder viewport has no loaded scenes".to_owned());
+        }
+
+        let mut merged = RenderScene::default();
+        let scene_count = inner.scenes.len() as u32;
+        for (scene_key, scene) in &inner.scenes {
+            let mut baked = scene.baked_current_scene()?;
+            for mesh in &mut baked.meshes {
+                mesh.name = format!("{scene_key}:{}", mesh.name);
+            }
+            merged.meshes.extend(baked.meshes);
+        }
+        if merged.is_empty() {
+            return Err("Current Builder viewport has no exportable geometry".to_owned());
+        }
+        Ok((merged, scene_count))
+    }
+
+    pub fn validate_current_print(&self) -> Result<BridgePrintValidation, String> {
+        let (merged, _) = self.baked_merged_scene()?;
+        let report = validate_print_scene(&merged);
+        Ok(BridgePrintValidation {
+            mesh_count: report.mesh_count,
+            triangle_count: report.triangle_count.min(u32::MAX as u64) as u32,
+            degenerate_triangles: report.degenerate_triangles.min(u32::MAX as u64) as u32,
+            boundary_edges: report.boundary_edges.min(u32::MAX as u64) as u32,
+            non_manifold_edges: report.non_manifold_edges.min(u32::MAX as u64) as u32,
+            invalid_indices: report.invalid_indices.min(u32::MAX as u64) as u32,
+            watertight: report.watertight(),
+        })
+    }
+
+    pub fn export_current_stl(
+        &self,
+        path: String,
+    ) -> Result<BridgeExportStatus, String> {
+        if path.trim().is_empty() {
+            return Err("Export path must not be empty".to_owned());
+        }
+        let (merged, scene_count) = self.baked_merged_scene()?;
+        let triangle_count = merged
+            .meshes
+            .iter()
+            .map(|mesh| (mesh.indices.len() / 3) as u64)
+            .sum::<u64>()
+            .min(u32::MAX as u64) as u32;
+        let mesh_count = merged.meshes.len() as u32;
+        write_binary_stl(&merged, &path)?;
+        Ok(BridgeExportStatus {
+            path,
+            scene_count,
+            mesh_count,
+            triangle_count,
+        })
+    }
+
+    pub fn export_current_3mf(
+        &self,
+        path: String,
+    ) -> Result<BridgeExportStatus, String> {
+        if path.trim().is_empty() {
+            return Err("Export path must not be empty".to_owned());
+        }
+        let (merged, scene_count) = self.baked_merged_scene()?;
+        let triangle_count = merged
+            .meshes
+            .iter()
+            .map(|mesh| (mesh.indices.len() / 3) as u64)
+            .sum::<u64>()
+            .min(u32::MAX as u64) as u32;
+        let mesh_count = merged.meshes.len() as u32;
+        write_3mf(&merged, &path)?;
+        Ok(BridgeExportStatus {
+            path,
+            scene_count,
+            mesh_count,
+            triangle_count,
+        })
+    }
+
     pub fn remove_scene(&self, scene_key: String) -> Result<bool, String> {
         let mut inner = self.lock_inner()?;
         let removed = inner.scenes.remove(&scene_key).is_some();
@@ -416,6 +755,192 @@ impl NativeViewportSession {
     pub fn loaded_scene_count(&self) -> Result<u32, String> {
         let inner = self.lock_inner()?;
         Ok(inner.scenes.len() as u32)
+    }
+
+    pub fn set_scene_model_transform(
+        &self,
+        scene_key: String,
+        transform: BridgeSceneTransform,
+    ) -> Result<(), String> {
+        if !transform.scale.is_finite() || transform.scale <= 0.0 {
+            return Err("Scene scale must be finite and positive".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+
+            renderer.set_scene_model_transform(
+                scene,
+                [
+                    transform.translation.x,
+                    transform.translation.y,
+                    transform.translation.z,
+                ],
+                [
+                    transform.rotation.x,
+                    transform.rotation.y,
+                    transform.rotation.z,
+                ],
+                transform.scale,
+            )?;
+        }
+        inner.render_frame();
+        Ok(())
+    }
+
+    pub fn set_scene_fk_rotation(
+        &self,
+        scene_key: String,
+        bone: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> Result<(), String> {
+        if bone.trim().is_empty() {
+            return Err("FK rotation requires a non-empty bone name".to_owned());
+        }
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            return Err("FK rotation requires finite Euler values".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+            let joint_index = scene
+                .joint_index(&bone)
+                .ok_or_else(|| format!("Bone {bone} was not found in scene {scene_key}"))?;
+            renderer.set_scene_joint_euler_xyz(scene, joint_index, x, y, z)?;
+        }
+        inner.render_frame();
+        Ok(())
+    }
+
+    pub fn set_scene_two_bone_ik(
+        &self,
+        scene_key: String,
+        upper: String,
+        lower: String,
+        end: String,
+        target: BridgeVec3,
+        pole: BridgeVec3,
+    ) -> Result<BridgeIkResult, String> {
+        if upper.trim().is_empty() || lower.trim().is_empty() || end.trim().is_empty() {
+            return Err("IK chain requires upper, lower and end joint names".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        let result = {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+
+            let upper_index = scene
+                .joint_index(&upper)
+                .ok_or_else(|| format!("Upper IK joint {upper} was not found in scene {scene_key}"))?;
+            let lower_index = scene
+                .joint_index(&lower)
+                .ok_or_else(|| format!("Lower IK joint {lower} was not found in scene {scene_key}"))?;
+            let end_index = scene
+                .joint_index(&end)
+                .ok_or_else(|| format!("End IK joint {end} was not found in scene {scene_key}"))?;
+
+            let root_position = scene.joint_world_position(upper_index)?;
+            let mid_position = scene.joint_world_position(lower_index)?;
+            let end_position = scene.joint_world_position(end_index)?;
+
+            let solved = solve_two_bone_ik(TwoBoneIkInput {
+                root: Vec3::new(root_position[0], root_position[1], root_position[2]),
+                mid: Vec3::new(mid_position[0], mid_position[1], mid_position[2]),
+                end: Vec3::new(end_position[0], end_position[1], end_position[2]),
+                target: target.into(),
+                pole: pole.into(),
+            })
+            .ok_or_else(|| "IK chain is collapsed or cannot be solved".to_owned())?;
+
+            renderer.apply_scene_two_bone_solution(
+                scene,
+                upper_index,
+                lower_index,
+                end_index,
+                [solved.mid.x, solved.mid.y, solved.mid.z],
+                [solved.end.x, solved.end.y, solved.end.z],
+            )?;
+
+            BridgeIkResult {
+                mid: solved.mid.into(),
+                end: solved.end.into(),
+                upper_length: solved.upper_length,
+                lower_length: solved.lower_length,
+                clamped_distance: solved.clamped_distance,
+                reached_target: solved.reached_target,
+            }
+        };
+
+        inner.render_frame();
+        Ok(result)
+    }
+
+    pub fn set_scene_hand_open(
+        &self,
+        scene_key: String,
+        open_amount: f32,
+    ) -> Result<u32, String> {
+        if !open_amount.is_finite() {
+            return Err("Hand open amount must be finite".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        let affected = {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+            renderer.set_scene_hand_open(scene, open_amount)? as u32
+        };
+
+        inner.render_frame();
+        Ok(affected)
+    }
+
+    pub fn reset_scene_pose(&self, scene_key: String) -> Result<(), String> {
+        let mut inner = self.lock_inner()?;
+        {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+            renderer.reset_scene_pose(scene)?;
+        }
+        inner.render_frame();
+        Ok(())
     }
 
     pub fn render_frame(&self) -> Result<(), String> {
@@ -499,6 +1024,65 @@ impl NativeViewportSession {
     }
 }
 
+
+
+fn joint_is_depth_visible(
+    depth: &[f32],
+    width: u32,
+    height: u32,
+    screen_x: f32,
+    screen_y: f32,
+    joint_depth: f32,
+) -> bool {
+    if depth.len() != width as usize * height as usize {
+        return true;
+    }
+    if !screen_x.is_finite() || !screen_y.is_finite() || !joint_depth.is_finite() {
+        return false;
+    }
+
+    let x = screen_x.floor().clamp(0.0, width.saturating_sub(1) as f32) as u32;
+    let y = screen_y.floor().clamp(0.0, height.saturating_sub(1) as f32) as u32;
+    let radius = 2_i32;
+    let mut nearest = 1.0_f32;
+
+    for oy in -radius..=radius {
+        for ox in -radius..=radius {
+            let sx = (x as i32 + ox).clamp(0, width.saturating_sub(1) as i32) as u32;
+            let sy = (y as i32 + oy).clamp(0, height.saturating_sub(1) as i32) as u32;
+            let value = depth[(sy * width + sx) as usize];
+            if value.is_finite() {
+                nearest = nearest.min(value);
+            }
+        }
+    }
+
+    const DEPTH_TOLERANCE: f32 = 0.008;
+    joint_depth <= nearest + DEPTH_TOLERANCE
+}
+
+fn project_clip(matrix: [[f32; 4]; 4], point: [f32; 3]) -> [f32; 4] {
+    let vector = [point[0], point[1], point[2], 1.0];
+    [
+        matrix[0][0] * vector[0]
+            + matrix[1][0] * vector[1]
+            + matrix[2][0] * vector[2]
+            + matrix[3][0] * vector[3],
+        matrix[0][1] * vector[0]
+            + matrix[1][1] * vector[1]
+            + matrix[2][1] * vector[2]
+            + matrix[3][1] * vector[3],
+        matrix[0][2] * vector[0]
+            + matrix[1][2] * vector[1]
+            + matrix[2][2] * vector[2]
+            + matrix[3][2] * vector[3],
+        matrix[0][3] * vector[0]
+            + matrix[1][3] * vector[1]
+            + matrix[2][3] * vector[2]
+            + matrix[3][3] * vector[3],
+    ]
+}
+
 impl From<ViewportCamera> for BridgeCameraState {
     fn from(value: ViewportCamera) -> Self {
         Self {
@@ -562,9 +1146,30 @@ mod tests {
     }
 
     #[test]
+    fn joint_depth_visibility_rejects_occluded_points() {
+        let depth = vec![0.4_f32; 25];
+        assert!(joint_is_depth_visible(&depth, 5, 5, 2.0, 2.0, 0.405));
+        assert!(!joint_is_depth_visible(&depth, 5, 5, 2.0, 2.0, 0.7));
+    }
+
+    #[test]
+    fn clip_projection_preserves_homogeneous_w() {
+        let identity = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        assert_eq!(
+            project_clip(identity, [0.25, -0.5, 0.75]),
+            [0.25, -0.5, 0.75, 1.0]
+        );
+    }
+
+    #[test]
     fn bridge_reports_contract_versions() {
         let status = core_status();
-        assert_eq!(status.design_version, 4);
+        assert_eq!(status.design_version, 5);
         assert_eq!(status.rig_profile, "freshstl_mixamo_rig_v3");
     }
 }

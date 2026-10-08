@@ -66,6 +66,54 @@ impl ViewportCamera {
         multiply_mat4(projection, view)
     }
 
+    pub fn screen_drag_world_delta(
+        &self,
+        world_point: [f32; 3],
+        delta_x_pixels: f32,
+        delta_y_pixels: f32,
+        viewport_height_pixels: f32,
+    ) -> [f32; 3] {
+        if !delta_x_pixels.is_finite()
+            || !delta_y_pixels.is_finite()
+            || !viewport_height_pixels.is_finite()
+            || viewport_height_pixels <= 0.0
+        {
+            return [0.0, 0.0, 0.0];
+        }
+
+        let cos_pitch = self.pitch.cos();
+        let eye = [
+            self.target[0] + self.distance * cos_pitch * self.yaw.sin(),
+            self.target[1] + self.distance * self.pitch.sin(),
+            self.target[2] + self.distance * cos_pitch * self.yaw.cos(),
+        ];
+        let forward = normalize([
+            self.target[0] - eye[0],
+            self.target[1] - eye[1],
+            self.target[2] - eye[2],
+        ]);
+        let right = normalize(cross(forward, [0.0, 1.0, 0.0]));
+        let up = cross(right, forward);
+        let to_point = [
+            world_point[0] - eye[0],
+            world_point[1] - eye[1],
+            world_point[2] - eye[2],
+        ];
+        let depth = dot(to_point, forward).max(0.001);
+        let world_per_pixel =
+            2.0 * depth * (45.0_f32.to_radians() * 0.5).tan()
+                / viewport_height_pixels;
+
+        [
+            right[0] * delta_x_pixels * world_per_pixel
+                - up[0] * delta_y_pixels * world_per_pixel,
+            right[1] * delta_x_pixels * world_per_pixel
+                - up[1] * delta_y_pixels * world_per_pixel,
+            right[2] * delta_x_pixels * world_per_pixel
+                - up[2] * delta_y_pixels * world_per_pixel,
+        ]
+    }
+
     pub fn set_preset(&mut self, preset: ViewPreset) {
         match preset {
             ViewPreset::Front => {
@@ -194,6 +242,21 @@ mod tests {
             let matrix = camera.view_projection(16.0 / 9.0);
             assert!(matrix.iter().flatten().all(|value| value.is_finite()));
         }
+    }
+
+    #[test]
+    fn screen_drag_maps_horizontal_motion_to_camera_right() {
+        let mut camera = ViewportCamera::default();
+        camera.set_preset(ViewPreset::Front);
+        let delta = camera.screen_drag_world_delta(
+            [0.0, 0.9, 0.0],
+            100.0,
+            0.0,
+            1000.0,
+        );
+        assert!(delta[0] > 0.0);
+        assert!(delta[1].abs() < 1.0e-5);
+        assert!(delta[2].abs() < 1.0e-5);
     }
 
     #[test]

@@ -36,15 +36,4 @@ void main() {
     controller.dispose();
   });
 
-  test('hand state toggles without changing transform tool', () {
-    final controller = BuilderWorkspaceController();
-    controller.selectTool(BuilderTool.move);
-    final before = controller.handOpen;
-
-    controller.toggleHand();
-
-    expect(controller.handOpen, isNot(before));
-    expect(controller.tool, BuilderTool.move);
-    controller.dispose();
-  });
 }

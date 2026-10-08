@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:fresh_builder_viewport_texture/fresh_builder_viewport_texture.dart';
 
 import 'src/cloud/builder_asset_disk_cache.dart';
@@ -12,11 +15,17 @@ import 'src/cloud/cloud_account_button.dart';
 import 'src/cloud/cloud_asset_dock.dart';
 import 'src/cloud/cloud_product_picker_button.dart';
 import 'src/cloud/supabase_bootstrap.dart';
+import 'src/rust/api/rig.dart';
 import 'src/rust/frb_generated.dart';
+import 'src/workspace/asset_transform_ui.dart';
+import 'src/workspace/builder_design_persistence.dart';
+import 'src/workspace/builder_persistence_actions.dart';
 import 'src/workspace/builder_workspace.dart';
 import 'src/workspace/current_builder_ui.dart';
+import 'src/workspace/native_rig_controller.dart';
 import 'src/workspace/native_viewport_controller.dart';
 import 'src/workspace/native_viewport_surface.dart';
+import 'src/workspace/rig_profile_resolver.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,8 +33,6 @@ Future<void> main() async {
   final cloudReady = await FreshSupabaseBootstrap.initialize();
   runApp(FreshBuilderApp(cloudReady: cloudReady));
 }
-
-enum RigMode { none, ik, fk }
 
 class FreshBuilderApp extends StatefulWidget {
   const FreshBuilderApp({super.key, required this.cloudReady});
@@ -57,48 +64,6 @@ class _FreshBuilderAppState extends State<FreshBuilderApp> {
     );
   }
 
-  Future<void> _preloadBaseCharacter(BuilderCloudData data) async {
-    final cache = _assetCache;
-    if (cache == null) return;
-
-    BuilderCloudAsset? base;
-    for (final asset in data.assets) {
-      final role = asset.role.trim().toLowerCase();
-      if (role == 'base_character' || asset.type == 'base_character') {
-        base = asset;
-        break;
-      }
-    }
-    if (base == null) return;
-
-    final choice = BuilderAssetChoice(
-      asset: base,
-      variation: base.variations.isEmpty ? null : base.variations.first,
-    );
-
-    try {
-      _workspace.setBusy(true, status: 'Loading base character');
-      final local = await cache.getOrDownload(choice);
-      await _nativeViewport.upsertLocalScene(
-        sceneKey: 'role:base_character',
-        path: local.file.path,
-        metersPerUnit: _metersPerUnit(choice),
-      );
-      if (!mounted) return;
-      final nativeScene = _nativeViewport.sceneStatus;
-      _workspace.setBusy(
-        false,
-        status: nativeScene?.loadedToGpu == true
-            ? 'Base character GPU ready'
-            : nativeScene?.readiness == 'needs_fbx_decoder'
-                ? 'Base character cached · FBX decoder pending'
-                : 'Base character ready',
-      );
-    } catch (error) {
-      if (!mounted) return;
-      _workspace.setBusy(false, status: 'Base character load failed');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -134,18 +99,22 @@ class BuilderPage extends StatefulWidget {
 }
 
 class _BuilderPageState extends State<BuilderPage> {
-  RigMode _rigMode = RigMode.none;
+  static const _baseCharacterSceneKey = 'role:base_character';
   int _selectedCategory = 0;
   BuilderProductSummary? _selectedProduct;
   BuilderCloudData? _cloudData;
   BuilderAssetChoice? _selectedAsset;
+  final Map<String, BuilderAssetChoice> _sceneSelections =
+      <String, BuilderAssetChoice>{};
   CachedBuilderAsset? _cachedAsset;
   BuilderAssetDiskCache? _assetCache;
   bool _cloudLoading = false;
   bool _assetLoading = false;
   String? _cloudError;
   String? _assetError;
+  static const _persistence = BuilderDesignPersistence();
   late final BuilderWorkspaceController _workspace;
+  late final NativeRigController _nativeRig;
   late final NativeViewportController _nativeViewport;
 
   static const fallbackCategories = <(IconData, String)>[
@@ -160,15 +129,452 @@ class _BuilderPageState extends State<BuilderPage> {
   void initState() {
     super.initState();
     _workspace = BuilderWorkspaceController();
+    _nativeRig = NativeRigController();
     _nativeViewport = NativeViewportController();
+    unawaited(_nativeRig.ensureInitialized());
     if (widget.cloudReady) {
       _assetCache = BuilderAssetDiskCache();
+    }
+  }
+
+  Future<void> _preloadBaseCharacter(BuilderCloudData data) async {
+    final cache = _assetCache;
+    if (cache == null) return;
+
+    BuilderCloudAsset? base;
+    for (final asset in data.assets) {
+      final role = asset.role.trim().toLowerCase();
+      if (role == 'base_character' || asset.type == 'base_character') {
+        base = asset;
+        break;
+      }
+    }
+    if (base == null) return;
+
+    final choice = BuilderAssetChoice(
+      asset: base,
+      variation: base.variations.isEmpty ? null : base.variations.first,
+    );
+
+    try {
+      _workspace.setBusy(true, status: 'Loading base character');
+      final local = await cache.getOrDownload(choice);
+      await _nativeViewport.upsertLocalScene(
+        sceneKey: _baseCharacterSceneKey,
+        path: local.file.path,
+        metersPerUnit: _metersPerUnit(choice),
+      );
+      _sceneSelections[_baseCharacterSceneKey] = choice;
+      if (!mounted) return;
+      final nativeScene = _nativeViewport.sceneStatus;
+      _workspace.setBusy(
+        false,
+        status: nativeScene?.loadedToGpu == true
+            ? 'Base character GPU ready'
+            : nativeScene?.readiness == 'needs_fbx_decoder'
+                ? 'Base character cached · FBX decoder pending'
+                : 'Base character ready',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Base character load failed');
+    }
+  }
+
+
+  Future<void> _saveCurrentDesign() async {
+    final product = _selectedProduct;
+    if (product == null) {
+      _workspace.setBusy(false, status: 'Select a product before saving');
+      return;
+    }
+
+    _workspace.setBusy(true, status: 'Saving Builder design…');
+    try {
+      await _persistence.saveSnapshot(
+        productId: product.id,
+        productName: product.name,
+        sceneSelections: _sceneSelections,
+        viewport: _nativeViewport,
+        rig: _nativeRig,
+      );
+      if (!mounted) return;
+      _workspace.setBusy(
+        false,
+        status:
+            'Design v5 saved · ${_sceneSelections.length} scene selections',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Design save failed');
+    }
+  }
+
+  Future<void> _exportCurrentStl() async {
+    final productName = _selectedProduct?.name ?? 'fresh-builder';
+    _workspace.setBusy(true, status: 'Baking current pose to STL…');
+    try {
+      final result = await _persistence.exportCurrentStl(
+        productName: productName,
+        viewport: _nativeViewport,
+      );
+      if (!mounted) return;
+      _workspace.setBusy(
+        false,
+        status:
+            'STL saved · ${result.sceneCount} scenes · '
+            '${result.meshCount} meshes · '
+            '${result.triangleCount} triangles',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'STL export failed');
+    }
+  }
+
+  BuilderAssetChoice? _savedChoice(BuilderSavedAsset saved) {
+    final data = _cloudData;
+    if (data == null) return null;
+
+    BuilderCloudAsset? asset;
+    for (final candidate in data.assets) {
+      if (candidate.id == saved.assetId) {
+        asset = candidate;
+        break;
+      }
+    }
+    if (asset == null) return null;
+
+    BuilderCloudVariation? variation;
+    final variationId = saved.variationId;
+    if (variationId != null && variationId.isNotEmpty) {
+      for (final candidate in asset.variations) {
+        if (candidate.id == variationId) {
+          variation = candidate;
+          break;
+        }
+      }
+    }
+    return BuilderAssetChoice(asset: asset, variation: variation);
+  }
+
+  Future<void> _restoreCurrentDesign() async {
+    final product = _selectedProduct;
+    final cache = _assetCache;
+    if (product == null || cache == null || _cloudData == null) {
+      _workspace.setBusy(false, status: 'Open a cloud product before restore');
+      return;
+    }
+
+    _workspace.setBusy(true, status: 'Restoring Design v5…');
+    try {
+      final saved = await _persistence.loadSnapshot(
+        productName: product.name,
+      );
+      if (saved == null) {
+        _workspace.setBusy(false, status: 'No saved Design v5 found');
+        return;
+      }
+      if (saved.productId.isNotEmpty && saved.productId != product.id) {
+        _workspace.setBusy(false, status: 'Saved design belongs to another product');
+        return;
+      }
+
+      await _nativeRig.reset();
+      _workspace.cancelPoseGesture();
+      _workspace.cancelAssetTransformGesture();
+      await _nativeViewport.clearScenes();
+      _sceneSelections.clear();
+
+      BuilderAssetChoice? selected;
+      for (final item in saved.assets) {
+        final choice = _savedChoice(item);
+        if (choice == null) continue;
+        final local = await cache.getOrDownload(choice);
+        await _nativeViewport.upsertLocalScene(
+          sceneKey: item.sceneKey,
+          path: local.file.path,
+          metersPerUnit: _metersPerUnit(choice),
+        );
+        _sceneSelections[item.sceneKey] = choice;
+        if (item.sceneKey != _baseCharacterSceneKey) {
+          selected ??= choice;
+        }
+      }
+
+      for (final entry in saved.transforms.entries) {
+        if (_nativeViewport.hasLoadedScene(entry.key)) {
+          await _nativeViewport.setSceneTransform(
+            sceneKey: entry.key,
+            transform: entry.value,
+          );
+        }
+      }
+
+      if (_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+        await _nativeRig.restoreDesignPose(
+          viewport: _nativeViewport,
+          sceneKey: _baseCharacterSceneKey,
+          pose: saved.pose,
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedAsset = selected;
+          _cachedAsset = null;
+          _assetError = null;
+          _assetLoading = false;
+        });
+      }
+      _workspace.setRigVisible(_nativeRig.mode != BridgeRigMode.none);
+      _workspace.setBusy(
+        false,
+        status: 'Design v5 restored · ${_sceneSelections.length} scenes',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Design restore failed');
+    }
+  }
+
+  Future<void> _validateCurrentPrint() async {
+    _workspace.setBusy(true, status: 'Validating printable geometry…');
+    try {
+      final report = await _persistence.validateCurrentPrint(
+        viewport: _nativeViewport,
+      );
+      if (!mounted) return;
+      final state = report.watertight ? 'Watertight' : 'Needs repair';
+      _workspace.setBusy(
+        false,
+        status:
+            '$state · ${report.triangleCount} tris · '
+            '${report.boundaryEdges} boundary · '
+            '${report.nonManifoldEdges} non-manifold · '
+            '${report.degenerateTriangles} degenerate',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Print validation failed');
+    }
+  }
+
+  Future<void> _exportCurrent3mf() async {
+    final productName = _selectedProduct?.name ?? 'fresh-builder';
+    _workspace.setBusy(true, status: 'Baking current pose to 3MF…');
+    try {
+      final result = await _persistence.exportCurrent3mf(
+        productName: productName,
+        viewport: _nativeViewport,
+      );
+      if (!mounted) return;
+      _workspace.setBusy(
+        false,
+        status:
+            '3MF saved · ${result.sceneCount} scenes · '
+            '${result.meshCount} meshes · '
+            '${result.triangleCount} triangles',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: '3MF export failed');
+    }
+  }
+
+  Future<void> _setRigMode(BridgeRigMode mode) async {
+    await _nativeRig.setMode(mode);
+    if (!mounted) return;
+    _workspace.setRigVisible(_nativeRig.mode != BridgeRigMode.none);
+  }
+
+  Future<void> _setHandOpen(bool open) async {
+    await _nativeRig.setHandOpen(open);
+    if (_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+      final affected = await _nativeViewport.setSceneHandOpen(
+        sceneKey: _baseCharacterSceneKey,
+        openAmount: open ? 1.0 : 0.0,
+      );
+      await _nativeViewport.refreshJointScreenPoints(
+        _baseCharacterSceneKey,
+      );
+      if (affected == 0) {
+        _workspace.setBusy(
+          false,
+          status: 'Hand pose saved · no Mixamo finger joints detected',
+        );
+      } else if (affected != null) {
+        _workspace.setBusy(
+          false,
+          status: open
+              ? 'Hands opened · $affected finger joints'
+              : 'Hands closed · $affected finger joints',
+        );
+      }
+    }
+  }
+
+  Future<void> _selectFkBone(String? bone) async {
+    await _nativeRig.selectBone(bone);
+  }
+
+  Future<void> _beginFkGesture() async {
+    if (!_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) return;
+    _workspace.beginPoseGesture();
+    await _nativeRig.beginGesture();
+  }
+
+  void _updateFkAxis(String axis, double value) {
+    final bone = _nativeRig.selectedBone;
+    if (bone == null || !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) return;
+    final constraint = resolveRigBoneConstraints(data: _cloudData)[bone];
+    if (constraint != null && !constraint.allows(axis)) return;
+    final clampedValue = constraint?.clamp(axis, value) ?? value;
+    final current = _nativeRig.selectedFkRotation;
+    _nativeRig.updateFkRotation(
+      viewport: _nativeViewport,
+      sceneKey: _baseCharacterSceneKey,
+      bone: bone,
+      x: axis == 'x' ? clampedValue : (current?.x ?? 0.0),
+      y: axis == 'y' ? clampedValue : (current?.y ?? 0.0),
+      z: axis == 'z' ? clampedValue : (current?.z ?? 0.0),
+    );
+  }
+
+  Future<void> _commitFkGesture() async {
+    try {
+      await _nativeRig.commitGesture();
+      await _nativeViewport.refreshJointScreenPoints(
+        _baseCharacterSceneKey,
+      );
+    } finally {
+      _workspace.commitPoseGesture();
+    }
+  }
+
+  Future<void> _cancelFkGesture() async {
+    try {
+      await _nativeRig.cancelGesture(
+        viewport: _nativeViewport,
+        sceneKey: _baseCharacterSceneKey,
+      );
+    } finally {
+      _workspace.cancelPoseGesture();
+    }
+  }
+
+  Future<void> _undoRig() async {
+    if (!_nativeRig.canUndo ||
+        !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+      return;
+    }
+    await _nativeRig.undo(
+      viewport: _nativeViewport,
+      sceneKey: _baseCharacterSceneKey,
+    );
+  }
+
+  Future<void> _redoRig() async {
+    if (!_nativeRig.canRedo ||
+        !_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+      return;
+    }
+    await _nativeRig.redo(
+      viewport: _nativeViewport,
+      sceneKey: _baseCharacterSceneKey,
+    );
+  }
+
+  Future<void> _toggleMobileRigEditor(BridgeRigMode mode) async {
+    final next = _nativeRig.mode == mode ? BridgeRigMode.none : mode;
+    await _setRigMode(next);
+    if (!mounted || next == BridgeRigMode.none) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).colorScheme;
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 14,
+              right: 14,
+              bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 14,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.72,
+              ),
+              child: SingleChildScrollView(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: ListenableBuilder(
+                      listenable: Listenable.merge([
+                        _nativeRig,
+                        _nativeViewport,
+                        _workspace,
+                      ]),
+                      builder: (context, _) {
+                        if (next == BridgeRigMode.ik) {
+                          return _IkEditor(
+                            chains: resolveIkChains(
+                              data: _cloudData,
+                              jointNames: _nativeViewport.sceneJointNames(
+                                _baseCharacterSceneKey,
+                              ),
+                            ),
+                            rigController: _nativeRig,
+                            viewportController: _nativeViewport,
+                            workspace: _workspace,
+                            sceneKey: _baseCharacterSceneKey,
+                          );
+                        }
+                        return _FkEditor(
+                          jointNames: _nativeViewport.sceneJointNames(
+                            _baseCharacterSceneKey,
+                          ),
+                          boneConstraints: resolveRigBoneConstraints(
+                            data: _cloudData,
+                          ),
+                          selectedBone: _nativeRig.selectedBone,
+                          rotation: _nativeRig.selectedFkRotation,
+                          onBoneSelected: (bone) =>
+                              unawaited(_selectFkBone(bone)),
+                          onGestureStart: () =>
+                              unawaited(_beginFkGesture()),
+                          onAxisChanged: _updateFkAxis,
+                          onGestureEnd: () =>
+                              unawaited(_commitFkGesture()),
+                          onGestureCancel: () =>
+                              unawaited(_cancelFkGesture()),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (_workspace.navigationLocked) {
+      await _cancelFkGesture();
     }
   }
 
   @override
   void dispose() {
     _assetCache?.dispose();
+    _nativeRig.dispose();
     _nativeViewport.dispose();
     _workspace.dispose();
     super.dispose();
@@ -273,11 +679,13 @@ class _BuilderPageState extends State<BuilderPage> {
       });
 
       _workspace.setBusy(true, status: 'Loading native scene');
+      final nativeSceneKey = _nativeSceneKey(choice);
       await _nativeViewport.upsertLocalScene(
-        sceneKey: _nativeSceneKey(choice),
+        sceneKey: nativeSceneKey,
         path: local.file.path,
         metersPerUnit: _metersPerUnit(choice),
       );
+      _sceneSelections[nativeSceneKey] = choice;
 
       if (!mounted || _selectedAsset?.selectionKey != selectionKey) return;
       final nativeScene = _nativeViewport.sceneStatus;
@@ -337,6 +745,69 @@ class _BuilderPageState extends State<BuilderPage> {
     return 'asset:${choice.assetId}';
   }
 
+  String? get _selectedTransformSceneKey {
+    final choice = _selectedAsset;
+    if (choice == null || choice.asset.type == 'pose') return null;
+    final sceneKey = _nativeSceneKey(choice);
+    if (sceneKey == _baseCharacterSceneKey) return null;
+    if (!_nativeViewport.hasLoadedScene(sceneKey)) return null;
+    return sceneKey;
+  }
+
+  void _beginSelectedAssetTransform() {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    _workspace.beginAssetTransformGesture();
+    _nativeViewport.beginSceneTransformGesture(sceneKey);
+  }
+
+  Future<void> _commitSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    try {
+      await _nativeViewport.commitSceneTransformGesture(sceneKey);
+    } finally {
+      _workspace.commitAssetTransformGesture();
+    }
+  }
+
+  Future<void> _cancelSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    try {
+      await _nativeViewport.cancelSceneTransformGesture(sceneKey);
+    } finally {
+      _workspace.cancelAssetTransformGesture();
+    }
+  }
+
+  Future<void> _undoSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    await _nativeViewport.undoSceneTransform(sceneKey);
+  }
+
+  Future<void> _redoSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    await _nativeViewport.redoSceneTransform(sceneKey);
+  }
+
+  Future<void> _updateSelectedAssetTransform(
+    NativeSceneTransform transform,
+  ) async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    await _nativeViewport.setSceneTransform(
+      sceneKey: sceneKey,
+      transform: transform,
+    );
+    _workspace.setBusy(
+      false,
+      status: 'Asset transform updated',
+    );
+  }
+
   double _metersPerUnit(BuilderAssetChoice choice) {
     final metadata = choice.metadata;
     final raw = metadata['metersPerBlenderUnit'] ??
@@ -375,7 +846,11 @@ class _BuilderPageState extends State<BuilderPage> {
   }
 
   Future<void> _openProduct(BuilderProductSummary product) async {
+    await _nativeRig.reset();
+    _workspace.cancelPoseGesture();
+    _workspace.setRigVisible(false);
     await _nativeViewport.clearScenes();
+    _sceneSelections.clear();
     setState(() {
       _selectedProduct = product;
       _cloudLoading = true;
@@ -420,6 +895,9 @@ class _BuilderPageState extends State<BuilderPage> {
                   cloudReady: widget.cloudReady,
                   selectedProduct: _selectedProduct,
                   onProductSelected: _openProduct,
+                  rigController: _nativeRig,
+                  onUndo: () => unawaited(_undoRig()),
+                  onRedo: () => unawaited(_redoRig()),
                 ),
                 Expanded(
                   child: compact
@@ -454,7 +932,14 @@ class _BuilderPageState extends State<BuilderPage> {
                     allowDirectOrbit: true,
                     child: BuilderViewport(
                     nativeController: _nativeViewport,
-                    rigMode: _rigMode,
+                    rigController: _nativeRig,
+                    workspaceController: _workspace,
+                    rigSceneKey: _baseCharacterSceneKey,
+                    ikChains: resolveIkChains(
+                      data: _cloudData,
+                      jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
+                    ),
+                    boneConstraints: resolveRigBoneConstraints(data: _cloudData),
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
                     cloudLoading: _cloudLoading,
@@ -467,11 +952,46 @@ class _BuilderPageState extends State<BuilderPage> {
                   ),
                   ),
                 ),
+                Positioned.fill(
+                  child: AssetViewportGizmo(
+                    workspace: _workspace,
+                    viewport: _nativeViewport,
+                    sceneKey: _selectedTransformSceneKey,
+                    onChanged: (transform) =>
+                        unawaited(_updateSelectedAssetTransform(transform)),
+                    onGestureStart: _beginSelectedAssetTransform,
+                    onGestureEnd: () =>
+                        unawaited(_commitSelectedAssetTransform()),
+                    onGestureCancel: () =>
+                        unawaited(_cancelSelectedAssetTransform()),
+                  ),
+                ),
                 Positioned(
                   left: desktop ? 16 : 8,
                   top: desktop ? 54 : 38,
                   child: BuilderToolRail(
                     controller: _workspace,
+                    compact: !desktop,
+                  ),
+                ),
+                Positioned(
+                  left: desktop ? 78 : 60,
+                  top: desktop ? 54 : 38,
+                  child: AssetTransformPanel(
+                    workspace: _workspace,
+                    viewport: _nativeViewport,
+                    sceneKey: _selectedTransformSceneKey,
+                    onChanged: (transform) =>
+                        unawaited(_updateSelectedAssetTransform(transform)),
+                    onGestureStart: _beginSelectedAssetTransform,
+                    onGestureEnd: () =>
+                        unawaited(_commitSelectedAssetTransform()),
+                    onGestureCancel: () =>
+                        unawaited(_cancelSelectedAssetTransform()),
+                    onUndo: () =>
+                        unawaited(_undoSelectedAssetTransform()),
+                    onRedo: () =>
+                        unawaited(_redoSelectedAssetTransform()),
                     compact: !desktop,
                   ),
                 ),
@@ -498,32 +1018,28 @@ class _BuilderPageState extends State<BuilderPage> {
                     right: 10,
                     top: 96,
                     child: ListenableBuilder(
-                      listenable: _workspace,
+                      listenable: Listenable.merge([_workspace, _nativeRig]),
                       builder: (context, _) => CurrentBuilderRigRail(
                         tablet: true,
-                        ikActive: _rigMode == RigMode.ik,
-                        fkActive: _rigMode == RigMode.fk,
-                        handOpen: _workspace.handOpen,
-                        onIk: () {
-                          setState(() {
-                            _rigMode =
-                                _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
-                          });
-                          _workspace.setRigVisible(_rigMode != RigMode.none);
-                        },
-                        onFk: () {
-                          setState(() {
-                            _rigMode =
-                                _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
-                          });
-                          _workspace.setRigVisible(_rigMode != RigMode.none);
-                        },
-                        onOpenHand: () {
-                          if (!_workspace.handOpen) _workspace.toggleHand();
-                        },
-                        onCloseHand: () {
-                          if (_workspace.handOpen) _workspace.toggleHand();
-                        },
+                        ikActive: _nativeRig.mode == BridgeRigMode.ik,
+                        fkActive: _nativeRig.mode == BridgeRigMode.fk,
+                        handOpen: _nativeRig.handOpen,
+                        onIk: () => unawaited(
+                          _setRigMode(
+                            _nativeRig.mode == BridgeRigMode.ik
+                                ? BridgeRigMode.none
+                                : BridgeRigMode.ik,
+                          ),
+                        ),
+                        onFk: () => unawaited(
+                          _setRigMode(
+                            _nativeRig.mode == BridgeRigMode.fk
+                                ? BridgeRigMode.none
+                                : BridgeRigMode.fk,
+                          ),
+                        ),
+                        onOpenHand: () => unawaited(_setHandOpen(true)),
+                        onCloseHand: () => unawaited(_setHandOpen(false)),
                       ),
                     ),
                   ),
@@ -532,6 +1048,7 @@ class _BuilderPageState extends State<BuilderPage> {
                   bottom: _cloudData == null ? 14 : 168,
                   child: BuilderViewportStatus(
                     controller: _workspace,
+                    nativeController: _nativeViewport,
                     assetName: _selectedAsset?.name,
                     assetLoading: _assetLoading,
                     cacheHit: _cachedAsset?.cacheHit,
@@ -557,12 +1074,29 @@ class _BuilderPageState extends State<BuilderPage> {
           SizedBox(
             width: 332,
             child: _RigPanel(
-              mode: _rigMode,
-              onModeChanged: (mode) {
-                setState(() => _rigMode = mode);
-                _workspace.setRigVisible(mode != RigMode.none);
-              },
+              rigController: _nativeRig,
+              onModeChanged: (mode) => unawaited(_setRigMode(mode)),
               workspace: _workspace,
+              jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
+              onBoneSelected: (bone) => unawaited(_selectFkBone(bone)),
+              onFkGestureStart: () => unawaited(_beginFkGesture()),
+              onFkAxisChanged: _updateFkAxis,
+              onFkGestureEnd: () => unawaited(_commitFkGesture()),
+              onFkGestureCancel: () => unawaited(_cancelFkGesture()),
+              viewportController: _nativeViewport,
+              sceneKey: _baseCharacterSceneKey,
+              ikChains: resolveIkChains(
+                data: _cloudData,
+                jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
+              ),
+              boneConstraints: resolveRigBoneConstraints(data: _cloudData),
+              onOpenHand: () => unawaited(_setHandOpen(true)),
+              onCloseHand: () => unawaited(_setHandOpen(false)),
+              onSaveDesign: () => unawaited(_saveCurrentDesign()),
+              onRestoreDesign: () => unawaited(_restoreCurrentDesign()),
+              onValidatePrint: () => unawaited(_validateCurrentPrint()),
+              onExportStl: () => unawaited(_exportCurrentStl()),
+              onExport3mf: () => unawaited(_exportCurrent3mf()),
             ),
           ),
       ],
@@ -579,7 +1113,14 @@ class _BuilderPageState extends State<BuilderPage> {
             allowDirectOrbit: false,
             child: BuilderViewport(
             nativeController: _nativeViewport,
-            rigMode: _rigMode,
+            rigController: _nativeRig,
+            workspaceController: _workspace,
+            rigSceneKey: _baseCharacterSceneKey,
+            ikChains: resolveIkChains(
+              data: _cloudData,
+              jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
+            ),
+            boneConstraints: resolveRigBoneConstraints(data: _cloudData),
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
             cloudLoading: _cloudLoading,
@@ -592,10 +1133,45 @@ class _BuilderPageState extends State<BuilderPage> {
           ),
           ),
         ),
+        Positioned.fill(
+          child: AssetViewportGizmo(
+            workspace: _workspace,
+            viewport: _nativeViewport,
+            sceneKey: _selectedTransformSceneKey,
+            onChanged: (transform) =>
+                unawaited(_updateSelectedAssetTransform(transform)),
+            onGestureStart: _beginSelectedAssetTransform,
+            onGestureEnd: () =>
+                unawaited(_commitSelectedAssetTransform()),
+            onGestureCancel: () =>
+                unawaited(_cancelSelectedAssetTransform()),
+          ),
+        ),
         Positioned(
           left: 0,
           top: 44,
           child: BuilderToolRail(controller: _workspace, compact: true),
+        ),
+        Positioned(
+          left: 50,
+          top: 44,
+          child: AssetTransformPanel(
+            workspace: _workspace,
+            viewport: _nativeViewport,
+            sceneKey: _selectedTransformSceneKey,
+            onChanged: (transform) =>
+                unawaited(_updateSelectedAssetTransform(transform)),
+            onGestureStart: _beginSelectedAssetTransform,
+            onGestureEnd: () =>
+                unawaited(_commitSelectedAssetTransform()),
+            onGestureCancel: () =>
+                unawaited(_cancelSelectedAssetTransform()),
+            onUndo: () =>
+                unawaited(_undoSelectedAssetTransform()),
+            onRedo: () =>
+                unawaited(_redoSelectedAssetTransform()),
+            compact: true,
+          ),
         ),
         Positioned(
           right: 8,
@@ -619,31 +1195,19 @@ class _BuilderPageState extends State<BuilderPage> {
           right: 8,
           top: 94,
           child: ListenableBuilder(
-            listenable: _workspace,
-            builder: (context, _) => CurrentBuilderRigRail(
-              ikActive: _rigMode == RigMode.ik,
-              fkActive: _rigMode == RigMode.fk,
-              handOpen: _workspace.handOpen,
-              onIk: () {
-                setState(() {
-                  _rigMode =
-                      _rigMode == RigMode.ik ? RigMode.none : RigMode.ik;
-                });
-                _workspace.setRigVisible(_rigMode != RigMode.none);
-              },
-              onFk: () {
-                setState(() {
-                  _rigMode =
-                      _rigMode == RigMode.fk ? RigMode.none : RigMode.fk;
-                });
-                _workspace.setRigVisible(_rigMode != RigMode.none);
-              },
-              onOpenHand: () {
-                if (!_workspace.handOpen) _workspace.toggleHand();
-              },
-              onCloseHand: () {
-                if (_workspace.handOpen) _workspace.toggleHand();
-              },
+            listenable: Listenable.merge([_workspace, _nativeRig]),
+                      builder: (context, _) => CurrentBuilderRigRail(
+              ikActive: _nativeRig.mode == BridgeRigMode.ik,
+              fkActive: _nativeRig.mode == BridgeRigMode.fk,
+              handOpen: _nativeRig.handOpen,
+              onIk: () => unawaited(
+                _toggleMobileRigEditor(BridgeRigMode.ik),
+              ),
+              onFk: () => unawaited(
+                _toggleMobileRigEditor(BridgeRigMode.fk),
+              ),
+              onOpenHand: () => unawaited(_setHandOpen(true)),
+                        onCloseHand: () => unawaited(_setHandOpen(false)),
             ),
           ),
         ),
@@ -657,6 +1221,18 @@ class _BuilderPageState extends State<BuilderPage> {
             assetName: _selectedAsset?.name,
             assetLoading: _assetLoading,
             cacheHit: _cachedAsset?.cacheHit,
+          ),
+        ),
+        Positioned(
+          right: 8,
+          bottom: _cloudData == null ? 72 : 164,
+          child: BuilderPersistenceActions(
+            compact: true,
+            onSave: () => unawaited(_saveCurrentDesign()),
+            onRestore: () => unawaited(_restoreCurrentDesign()),
+            onValidate: () => unawaited(_validateCurrentPrint()),
+            onExportStl: () => unawaited(_exportCurrentStl()),
+            onExport3mf: () => unawaited(_exportCurrent3mf()),
           ),
         ),
         if (_cloudData != null)
@@ -693,18 +1269,26 @@ class _TopBar extends StatelessWidget {
     required this.cloudReady,
     required this.selectedProduct,
     required this.onProductSelected,
+    required this.rigController,
+    required this.onUndo,
+    required this.onRedo,
   });
 
   final VoidCallback onToggleTheme;
   final bool cloudReady;
   final BuilderProductSummary? selectedProduct;
   final ValueChanged<BuilderProductSummary> onProductSelected;
+  final NativeRigController rigController;
+  final VoidCallback onUndo;
+  final VoidCallback onRedo;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return LayoutBuilder(
-      builder: (context, constraints) {
+    return ListenableBuilder(
+      listenable: rigController,
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
         final desktop = constraints.maxWidth >= 1120;
         final height = desktop ? 66.0 : 58.0;
 
@@ -835,12 +1419,12 @@ class _TopBar extends StatelessWidget {
                   _HeaderIconButton(
                     icon: Icons.undo_rounded,
                     tooltip: 'Undo',
-                    onPressed: () {},
+                    onPressed: rigController.canUndo ? onUndo : null,
                   ),
                   _HeaderIconButton(
                     icon: Icons.redo_rounded,
                     tooltip: 'Redo',
-                    onPressed: () {},
+                    onPressed: rigController.canRedo ? onRedo : null,
                   ),
                   _HeaderIconButton(
                     icon: Icons.brightness_6_rounded,
@@ -859,7 +1443,8 @@ class _TopBar extends StatelessWidget {
             ],
           ),
         );
-      },
+        },
+      ),
     );
   }
 }
@@ -927,7 +1512,7 @@ class _HeaderIconButton extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -935,10 +1520,13 @@ class _HeaderIconButton extends StatelessWidget {
       padding: const EdgeInsets.only(right: 5),
       child: Tooltip(
         message: tooltip,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onPressed,
-          child: Container(
+        child: AnimatedOpacity(
+          opacity: onPressed == null ? 0.38 : 1,
+          duration: const Duration(milliseconds: 120),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onPressed,
+            child: Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
@@ -946,7 +1534,8 @@ class _HeaderIconButton extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Theme.of(context).dividerColor),
             ),
-            child: Icon(icon, size: 17),
+              child: Icon(icon, size: 17),
+            ),
           ),
         ),
       ),
@@ -956,14 +1545,48 @@ class _HeaderIconButton extends StatelessWidget {
 
 class _RigPanel extends StatelessWidget {
   const _RigPanel({
-    required this.mode,
+    required this.rigController,
     required this.onModeChanged,
     required this.workspace,
+    required this.jointNames,
+    required this.onBoneSelected,
+    required this.onFkGestureStart,
+    required this.onFkAxisChanged,
+    required this.onFkGestureEnd,
+    required this.onFkGestureCancel,
+    required this.viewportController,
+    required this.sceneKey,
+    required this.ikChains,
+    required this.boneConstraints,
+    required this.onOpenHand,
+    required this.onCloseHand,
+    required this.onSaveDesign,
+    required this.onRestoreDesign,
+    required this.onValidatePrint,
+    required this.onExportStl,
+    required this.onExport3mf,
   });
 
-  final RigMode mode;
-  final ValueChanged<RigMode> onModeChanged;
+  final NativeRigController rigController;
+  final ValueChanged<BridgeRigMode> onModeChanged;
   final BuilderWorkspaceController workspace;
+  final List<String> jointNames;
+  final ValueChanged<String?> onBoneSelected;
+  final VoidCallback onFkGestureStart;
+  final void Function(String axis, double value) onFkAxisChanged;
+  final VoidCallback onFkGestureEnd;
+  final VoidCallback onFkGestureCancel;
+  final NativeViewportController viewportController;
+  final String sceneKey;
+  final List<IkChainBinding> ikChains;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
+  final VoidCallback onOpenHand;
+  final VoidCallback onCloseHand;
+  final VoidCallback onSaveDesign;
+  final VoidCallback onRestoreDesign;
+  final VoidCallback onValidatePrint;
+  final VoidCallback onExportStl;
+  final VoidCallback onExport3mf;
 
   @override
   Widget build(BuildContext context) {
@@ -1001,8 +1624,9 @@ class _RigPanel extends StatelessWidget {
               ],
             ),
             child: ListenableBuilder(
-              listenable: workspace,
+              listenable: Listenable.merge([workspace, rigController, viewportController]),
               builder: (context, _) {
+                final mode = rigController.mode;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -1015,7 +1639,7 @@ class _RigPanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      mode == RigMode.none
+                      mode == BridgeRigMode.none
                           ? 'Rig controls'
                           : '${mode.name.toUpperCase()} active',
                       style: TextStyle(
@@ -1038,9 +1662,9 @@ class _RigPanel extends StatelessWidget {
                           Expanded(
                             child: _SegmentRigButton(
                               label: 'IK',
-                              selected: mode == RigMode.ik,
+                              selected: mode == BridgeRigMode.ik,
                               onTap: () => onModeChanged(
-                                mode == RigMode.ik ? RigMode.none : RigMode.ik,
+                                mode == BridgeRigMode.ik ? BridgeRigMode.none : BridgeRigMode.ik,
                               ),
                             ),
                           ),
@@ -1048,9 +1672,9 @@ class _RigPanel extends StatelessWidget {
                           Expanded(
                             child: _SegmentRigButton(
                               label: 'FK',
-                              selected: mode == RigMode.fk,
+                              selected: mode == BridgeRigMode.fk,
                               onTap: () => onModeChanged(
-                                mode == RigMode.fk ? RigMode.none : RigMode.fk,
+                                mode == BridgeRigMode.fk ? BridgeRigMode.none : BridgeRigMode.fk,
                               ),
                             ),
                           ),
@@ -1113,6 +1737,30 @@ class _RigPanel extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (mode == BridgeRigMode.ik) ...[
+                      const SizedBox(height: 14),
+                      _IkEditor(
+                        chains: ikChains,
+                        rigController: rigController,
+                        viewportController: viewportController,
+                        workspace: workspace,
+                        sceneKey: sceneKey,
+                      ),
+                    ],
+                    if (mode == BridgeRigMode.fk) ...[
+                      const SizedBox(height: 14),
+                      _FkEditor(
+                        jointNames: jointNames,
+                        boneConstraints: boneConstraints,
+                        selectedBone: rigController.selectedBone,
+                        rotation: rigController.selectedFkRotation,
+                        onBoneSelected: onBoneSelected,
+                        onGestureStart: onFkGestureStart,
+                        onAxisChanged: onFkAxisChanged,
+                        onGestureEnd: onFkGestureEnd,
+                        onGestureCancel: onFkGestureCancel,
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     const Text(
                       'Hands',
@@ -1127,20 +1775,16 @@ class _RigPanel extends StatelessWidget {
                         Expanded(
                           child: _HandStateButton(
                             label: 'Open',
-                            selected: workspace.handOpen,
-                            onTap: () {
-                              if (!workspace.handOpen) workspace.toggleHand();
-                            },
+                            selected: rigController.handOpen,
+                            onTap: onOpenHand,
                           ),
                         ),
                         const SizedBox(width: 7),
                         Expanded(
                           child: _HandStateButton(
                             label: 'Close',
-                            selected: !workspace.handOpen,
-                            onTap: () {
-                              if (workspace.handOpen) workspace.toggleHand();
-                            },
+                            selected: !rigController.handOpen,
+                            onTap: onCloseHand,
                           ),
                         ),
                       ],
@@ -1151,27 +1795,560 @@ class _RigPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          BuilderPersistenceActions(
+            onSave: onSaveDesign,
+            onRestore: onRestoreDesign,
+            onValidate: onValidatePrint,
+            onExportStl: onExportStl,
+            onExport3mf: onExport3mf,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IkEditor extends StatefulWidget {
+  const _IkEditor({
+    required this.chains,
+    required this.rigController,
+    required this.viewportController,
+    required this.workspace,
+    required this.sceneKey,
+  });
+
+  final List<IkChainBinding> chains;
+  final NativeRigController rigController;
+  final NativeViewportController viewportController;
+  final BuilderWorkspaceController workspace;
+  final String sceneKey;
+
+  @override
+  State<_IkEditor> createState() => _IkEditorState();
+}
+
+class _IkEditorState extends State<_IkEditor> {
+  IkChainBinding? _selected;
+  ({double x, double y, double z})? _baseTarget;
+  ({double x, double y, double z})? _pole;
+  double _reach = 0.1;
+  double _offsetX = 0;
+  double _offsetY = 0;
+  double _offsetZ = 0;
+  bool _loading = false;
+
+  @override
+  void didUpdateWidget(covariant _IkEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final authoritative = widget.rigController.selectedEffector;
+    if (authoritative != null && authoritative != _selected?.effector) {
+      IkChainBinding? match;
+      for (final chain in widget.chains) {
+        if (chain.effector == authoritative) {
+          match = chain;
+          break;
+        }
+      }
+      if (match != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_selectChain(match));
+        });
+        return;
+      }
+    }
+
+    final effector = _selected?.effector;
+    if (effector == null) return;
+
+    IkChainBinding? refreshed;
+    for (final chain in widget.chains) {
+      if (chain.effector == effector) {
+        refreshed = chain;
+        break;
+      }
+    }
+
+    if (refreshed == null) {
+      _selected = null;
+      _baseTarget = null;
+      _pole = null;
+      _offsetX = 0;
+      _offsetY = 0;
+      _offsetZ = 0;
+    } else {
+      _selected = refreshed;
+    }
+  }
+
+  Future<void> _selectChain(IkChainBinding? chain) async {
+    if (chain == null) {
+      setState(() {
+        _selected = null;
+        _baseTarget = null;
+        _pole = null;
+      });
+      return;
+    }
+
+    setState(() => _loading = true);
+    final upper = await widget.viewportController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.upper,
+    );
+    final lower = await widget.viewportController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.lower,
+    );
+    final end = await widget.viewportController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.end,
+    );
+
+    if (!mounted) return;
+    if (upper == null || lower == null || end == null) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    final upperLength = _distance3(upper, lower);
+    final lowerLength = _distance3(lower, end);
+    final reach = math.max(upperLength + lowerLength, 0.001);
+    final poleDirection = _normalizedPole(chain.poleDirection);
+    final pole = (
+      x: upper.x + poleDirection.$1 * reach,
+      y: upper.y + poleDirection.$2 * reach,
+      z: upper.z + poleDirection.$3 * reach,
+    );
+
+    setState(() {
+      _selected = chain;
+      _baseTarget = end;
+      _pole = pole;
+      _reach = reach;
+      _offsetX = 0;
+      _offsetY = 0;
+      _offsetZ = 0;
+      _loading = false;
+    });
+  }
+
+  Future<void> _beginGesture() async {
+    if (_selected == null || _baseTarget == null || _pole == null) return;
+    widget.workspace.beginPoseGesture();
+    await widget.rigController.beginGesture();
+  }
+
+  void _updateAxis(String axis, double value) {
+    final chain = _selected;
+    final base = _baseTarget;
+    final pole = _pole;
+    if (chain == null || base == null || pole == null) return;
+
+    setState(() {
+      if (axis == 'x') _offsetX = value;
+      if (axis == 'y') _offsetY = value;
+      if (axis == 'z') _offsetZ = value;
+    });
+
+    widget.rigController.updateIkTarget(
+      viewport: widget.viewportController,
+      sceneKey: widget.sceneKey,
+      effector: chain.effector,
+      upper: chain.upper,
+      lower: chain.lower,
+      end: chain.end,
+      targetX: base.x + _offsetX,
+      targetY: base.y + _offsetY,
+      targetZ: base.z + _offsetZ,
+      poleX: pole.x,
+      poleY: pole.y,
+      poleZ: pole.z,
+    );
+  }
+
+  Future<void> _commitGesture() async {
+    final base = _baseTarget;
+    try {
+      await widget.rigController.commitGesture();
+      await widget.viewportController.refreshJointScreenPoints(
+        widget.sceneKey,
+      );
+      if (mounted && base != null) {
+        setState(() {
+          _baseTarget = (
+            x: base.x + _offsetX,
+            y: base.y + _offsetY,
+            z: base.z + _offsetZ,
+          );
+          _offsetX = 0;
+          _offsetY = 0;
+          _offsetZ = 0;
+        });
+      }
+    } finally {
+      widget.workspace.commitPoseGesture();
+    }
+  }
+
+  Future<void> _cancelGesture() async {
+    final chain = _selected;
+    try {
+      await widget.rigController.cancelGesture(
+        viewport: widget.viewportController,
+        sceneKey: widget.sceneKey,
+      );
+      if (chain != null) {
+        final end = await widget.viewportController.sceneJointWorldPosition(
+          widget.sceneKey,
+          chain.end,
+        );
+        if (mounted && end != null) {
+          setState(() {
+            _baseTarget = end;
+            _offsetX = 0;
+            _offsetY = 0;
+            _offsetZ = 0;
+          });
+        }
+      }
+    } finally {
+      widget.workspace.cancelPoseGesture();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final selected = widget.chains.any((chain) => chain.effector == _selected?.effector)
+        ? _selected
+        : null;
+
+    if (widget.chains.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: colors.errorContainer.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Text(
+          'No valid IK chains found. Upload Rig V3 metadata or a supported Mixamo skeleton.',
+          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Text('IK effector', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+            const Spacer(),
+            Text(
+              widget.chains.every((chain) => chain.source == 'rig_v3') ? 'Rig V3' : 'Fallback',
+              style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: colors.primary),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        DropdownButtonFormField<String>(
+          initialValue: selected?.effector,
+          isExpanded: true,
+          hint: const Text('Select hand or foot'),
+          items: widget.chains
+              .map((chain) => DropdownMenuItem<String>(
+                    value: chain.effector,
+                    child: Text(chain.effector),
+                  ))
+              .toList(growable: false),
+          onChanged: _loading
+              ? null
+              : (value) {
+                  IkChainBinding? match;
+                  for (final chain in widget.chains) {
+                    if (chain.effector == value) {
+                      match = chain;
+                      break;
+                    }
+                  }
+                  if (match != null) {
+                    unawaited(widget.rigController.selectEffector(match.effector));
+                  }
+                  unawaited(_selectChain(match));
+                },
+          decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+        ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.only(top: 10),
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+        if (selected != null && _baseTarget != null && _pole != null) ...[
+          const SizedBox(height: 10),
+          _IkAxisSlider(
+            axis: 'X',
+            value: _offsetX,
+            limit: _reach,
+            onStart: () => unawaited(_beginGesture()),
+            onChanged: (value) => _updateAxis('x', value),
+            onEnd: () => unawaited(_commitGesture()),
+          ),
+          _IkAxisSlider(
+            axis: 'Y',
+            value: _offsetY,
+            limit: _reach,
+            onStart: () => unawaited(_beginGesture()),
+            onChanged: (value) => _updateAxis('y', value),
+            onEnd: () => unawaited(_commitGesture()),
+          ),
+          _IkAxisSlider(
+            axis: 'Z',
+            value: _offsetZ,
+            limit: _reach,
+            onStart: () => unawaited(_beginGesture()),
+            onChanged: (value) => _updateAxis('z', value),
+            onEnd: () => unawaited(_commitGesture()),
+          ),
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.face_retouching_natural_rounded, size: 16),
-                  label: const Text('Face'),
+                child: Text(
+                  '${selected.upper} → ${selected.lower} → ${selected.end}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 7, color: colors.onSurfaceVariant),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.print_rounded, size: 16),
-                  label: const Text('Print / Export'),
-                ),
+              TextButton(
+                onPressed: () => unawaited(_cancelGesture()),
+                child: const Text('Cancel'),
               ),
             ],
           ),
         ],
-      ),
+      ],
+    );
+  }
+
+  double _distance3(
+    ({double x, double y, double z}) a,
+    ({double x, double y, double z}) b,
+  ) {
+    final dx = a.x - b.x;
+    final dy = a.y - b.y;
+    final dz = a.z - b.z;
+    return math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  (double, double, double) _normalizedPole(List<double> value) {
+    final x = value.isNotEmpty ? value[0] : 0.0;
+    final y = value.length > 1 ? value[1] : 0.0;
+    final z = value.length > 2 ? value[2] : 1.0;
+    final length = math.sqrt(x * x + y * y + z * z);
+    if (!length.isFinite || length < 1.0e-8) return (0.0, 0.0, 1.0);
+    return (x / length, y / length, z / length);
+  }
+}
+
+class _IkAxisSlider extends StatelessWidget {
+  const _IkAxisSlider({
+    required this.axis,
+    required this.value,
+    required this.limit,
+    required this.onStart,
+    required this.onChanged,
+    required this.onEnd,
+  });
+
+  final String axis;
+  final double value;
+  final double limit;
+  final VoidCallback onStart;
+  final ValueChanged<double> onChanged;
+  final VoidCallback onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeLimit = math.max(limit, 0.001);
+    return Row(
+      children: [
+        SizedBox(
+          width: 18,
+          child: Text(axis, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900)),
+        ),
+        Expanded(
+          child: Slider(
+            min: -safeLimit,
+            max: safeLimit,
+            value: value.clamp(-safeLimit, safeLimit),
+            onChangeStart: (_) => onStart(),
+            onChanged: onChanged,
+            onChangeEnd: (_) => onEnd(),
+          ),
+        ),
+        SizedBox(
+          width: 52,
+          child: Text(
+            '${(value * 1000).round()} mm',
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FkEditor extends StatelessWidget {
+  const _FkEditor({
+    required this.jointNames,
+    required this.boneConstraints,
+    required this.selectedBone,
+    required this.rotation,
+    required this.onBoneSelected,
+    required this.onGestureStart,
+    required this.onAxisChanged,
+    required this.onGestureEnd,
+    required this.onGestureCancel,
+  });
+
+  final List<String> jointNames;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
+  final String? selectedBone;
+  final BridgeEuler? rotation;
+  final ValueChanged<String?> onBoneSelected;
+  final VoidCallback onGestureStart;
+  final void Function(String axis, double value) onAxisChanged;
+  final VoidCallback onGestureEnd;
+  final VoidCallback onGestureCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = jointNames.contains(selectedBone) ? selectedBone : null;
+    final allowed = selected == null
+        ? const <String>{'x', 'y', 'z'}
+        : boneConstraints[selected]?.allowedAxes ??
+            const <String>{'x', 'y', 'z'};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('FK bone', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 7),
+        DropdownButtonFormField<String>(
+          initialValue: selected,
+          isExpanded: true,
+          hint: Text(jointNames.isEmpty ? 'Load a skinned character' : 'Select bone'),
+          items: jointNames.map((bone) => DropdownMenuItem<String>(
+            value: bone,
+            child: Text(bone, overflow: TextOverflow.ellipsis),
+          )).toList(growable: false),
+          onChanged: jointNames.isEmpty ? null : onBoneSelected,
+          decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+        ),
+        if (selected != null) ...[
+          const SizedBox(height: 10),
+          if (boneConstraints[selected]?.hingeAxis != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                'Hinge axis · ${allowed.single.toUpperCase()}',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+          if (allowed.contains('x'))
+            _FkAxisSlider(
+              axis: 'X',
+              value: rotation?.x ?? 0,
+              min: boneConstraints[selected]?.rotationLimits['x']?.min,
+              max: boneConstraints[selected]?.rotationLimits['x']?.max,
+              onStart: onGestureStart,
+              onChanged: (value) => onAxisChanged('x', value),
+              onEnd: onGestureEnd,
+            ),
+          if (allowed.contains('y'))
+            _FkAxisSlider(
+              axis: 'Y',
+              value: rotation?.y ?? 0,
+              min: boneConstraints[selected]?.rotationLimits['y']?.min,
+              max: boneConstraints[selected]?.rotationLimits['y']?.max,
+              onStart: onGestureStart,
+              onChanged: (value) => onAxisChanged('y', value),
+              onEnd: onGestureEnd,
+            ),
+          if (allowed.contains('z'))
+            _FkAxisSlider(
+              axis: 'Z',
+              value: rotation?.z ?? 0,
+              min: boneConstraints[selected]?.rotationLimits['z']?.min,
+              max: boneConstraints[selected]?.rotationLimits['z']?.max,
+              onStart: onGestureStart,
+              onChanged: (value) => onAxisChanged('z', value),
+              onEnd: onGestureEnd,
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onGestureCancel,
+              icon: const Icon(Icons.close_rounded, size: 14),
+              label: const Text('Cancel edit'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _FkAxisSlider extends StatelessWidget {
+  const _FkAxisSlider({
+    required this.axis,
+    required this.value,
+    this.min,
+    this.max,
+    required this.onStart,
+    required this.onChanged,
+    required this.onEnd,
+  });
+
+  final String axis;
+  final double value;
+  final double? min;
+  final double? max;
+  final VoidCallback onStart;
+  final ValueChanged<double> onChanged;
+  final VoidCallback onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final minValue = min ?? -math.pi;
+    final maxValue = max ?? math.pi;
+    return Row(
+      children: [
+        SizedBox(width: 18, child: Text(axis,
+          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900))),
+        Expanded(
+          child: Slider(
+            min: minValue,
+            max: maxValue,
+            value: value.clamp(minValue, maxValue),
+            onChangeStart: (_) => onStart(),
+            onChanged: onChanged,
+            onChangeEnd: (_) => onEnd(),
+          ),
+        ),
+        SizedBox(
+          width: 42,
+          child: Text(
+            '${(value * 180 / math.pi).round()}°',
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1283,7 +2460,11 @@ class BuilderViewport extends StatelessWidget {
   const BuilderViewport({
     super.key,
     required this.nativeController,
-    required this.rigMode,
+    required this.rigController,
+    required this.workspaceController,
+    required this.rigSceneKey,
+    required this.ikChains,
+    required this.boneConstraints,
     this.productName,
     this.assetCount,
     this.cloudLoading = false,
@@ -1296,7 +2477,11 @@ class BuilderViewport extends StatelessWidget {
   });
 
   final NativeViewportController nativeController;
-  final RigMode rigMode;
+  final NativeRigController rigController;
+  final BuilderWorkspaceController workspaceController;
+  final String rigSceneKey;
+  final List<IkChainBinding> ikChains;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
   final String? productName;
   final int? assetCount;
   final bool cloudLoading;
@@ -1311,9 +2496,10 @@ class BuilderViewport extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return ListenableBuilder(
-      listenable: nativeController,
+      listenable: Listenable.merge([nativeController, rigController]),
       builder: (context, _) {
         final textureId = nativeController.textureId;
+        final rigMode = rigController.mode;
 
         return ClipRRect(
           borderRadius: BorderRadius.circular(18),
@@ -1336,10 +2522,32 @@ class BuilderViewport extends StatelessWidget {
                       grid: Theme.of(context).dividerColor,
                       accent: colors.primary,
                       foreground: colors.onSurface,
-                      showRig: rigMode != RigMode.none,
-                      ik: rigMode == RigMode.ik,
+                      showRig: rigMode != BridgeRigMode.none,
+                      ik: rigMode == BridgeRigMode.ik,
                     ),
                     child: const SizedBox.expand(),
+                  ),
+                if (rigMode == BridgeRigMode.fk)
+                  _RigJointOverlay(
+                    nativeController: nativeController,
+                    rigController: rigController,
+                    sceneKey: rigSceneKey,
+                  ),
+                if (rigMode == BridgeRigMode.fk)
+                  _FkGizmoOverlay(
+                    nativeController: nativeController,
+                    rigController: rigController,
+                    workspaceController: workspaceController,
+                    sceneKey: rigSceneKey,
+                    boneConstraints: boneConstraints,
+                  ),
+                if (rigMode == BridgeRigMode.ik)
+                  _RigIkOverlay(
+                    nativeController: nativeController,
+                    rigController: rigController,
+                    workspaceController: workspaceController,
+                    sceneKey: rigSceneKey,
+                    chains: ikChains,
                   ),
                 if (nativeController.textureError != null)
                   Positioned(
@@ -1373,6 +2581,800 @@ class BuilderViewport extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _RigIkOverlay extends StatefulWidget {
+  const _RigIkOverlay({
+    required this.nativeController,
+    required this.rigController,
+    required this.workspaceController,
+    required this.sceneKey,
+    required this.chains,
+  });
+
+  final NativeViewportController nativeController;
+  final NativeRigController rigController;
+  final BuilderWorkspaceController workspaceController;
+  final String sceneKey;
+  final List<IkChainBinding> chains;
+
+  @override
+  State<_RigIkOverlay> createState() => _RigIkOverlayState();
+}
+
+class _RigIkOverlayState extends State<_RigIkOverlay> {
+  IkChainBinding? _activeChain;
+  ({double x, double y, double z})? _target;
+  ({double x, double y, double z})? _pole;
+  double _pendingDx = 0;
+  double _pendingDy = 0;
+  Future<void>? _dragFlush;
+  Future<void>? _startFuture;
+
+  void _beginDrag(IkChainBinding chain) {
+    final future = _startDrag(chain);
+    _startFuture = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_startFuture, future)) {
+          _startFuture = null;
+        }
+      }),
+    );
+  }
+
+  Future<void> _startDrag(IkChainBinding chain) async {
+    _pendingDx = 0;
+    _pendingDy = 0;
+    _activeChain = chain;
+
+    widget.workspaceController.beginPoseGesture();
+    await widget.rigController.selectEffector(chain.effector);
+    await widget.rigController.beginGesture();
+
+    final upper = await widget.nativeController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.upper,
+    );
+    final lower = await widget.nativeController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.lower,
+    );
+    final end = await widget.nativeController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.end,
+    );
+
+    if (!mounted || upper == null || lower == null || end == null) {
+      await _cancelDrag();
+      return;
+    }
+
+    final upperLength = _distance3(upper, lower);
+    final lowerLength = _distance3(lower, end);
+    final reach = math.max(upperLength + lowerLength, 0.001);
+    final direction = _normalizedPole(chain.poleDirection);
+
+    _target = end;
+    _pole = (
+      x: upper.x + direction.$1 * reach,
+      y: upper.y + direction.$2 * reach,
+      z: upper.z + direction.$3 * reach,
+    );
+    _ensureDragFlush();
+  }
+
+  void _queueDrag(Offset logicalDelta, Size logicalSize) {
+    if (_activeChain == null) return;
+    if (logicalSize.width <= 0 || logicalSize.height <= 0) return;
+
+    final scaleX = widget.nativeController.physicalWidth / logicalSize.width;
+    final scaleY = widget.nativeController.physicalHeight / logicalSize.height;
+    _pendingDx += logicalDelta.dx * scaleX;
+    _pendingDy += logicalDelta.dy * scaleY;
+    _ensureDragFlush();
+  }
+
+  void _ensureDragFlush() {
+    if (_dragFlush != null || _target == null || _pole == null) return;
+    if (_pendingDx.abs() <= 0.001 && _pendingDy.abs() <= 0.001) return;
+
+    final future = _flushDrag();
+    _dragFlush = future;
+    unawaited(
+      future.whenComplete(() {
+        _dragFlush = null;
+        if (_pendingDx.abs() > 0.001 || _pendingDy.abs() > 0.001) {
+          _ensureDragFlush();
+        }
+      }),
+    );
+  }
+
+  Future<void> _flushPendingDrag() async {
+    while (_pendingDx.abs() > 0.001 ||
+        _pendingDy.abs() > 0.001 ||
+        _dragFlush != null) {
+      _ensureDragFlush();
+      final active = _dragFlush;
+      if (active != null) {
+        await active;
+      } else {
+        break;
+      }
+    }
+  }
+
+  Future<void> _flushDrag() async {
+    while (_activeChain != null &&
+        (_pendingDx.abs() > 0.001 || _pendingDy.abs() > 0.001)) {
+      final chain = _activeChain!;
+      final target = _target;
+      final pole = _pole;
+      if (target == null || pole == null) return;
+
+      final dx = _pendingDx;
+      final dy = _pendingDy;
+      _pendingDx = 0;
+      _pendingDy = 0;
+
+      final worldDelta =
+          await widget.nativeController.sceneJointScreenDragDelta(
+        sceneKey: widget.sceneKey,
+        bone: chain.end,
+        deltaX: dx,
+        deltaY: dy,
+      );
+      if (worldDelta == null || _activeChain != chain) continue;
+
+      final nextTarget = (
+        x: target.x + worldDelta.x,
+        y: target.y + worldDelta.y,
+        z: target.z + worldDelta.z,
+      );
+      _target = nextTarget;
+
+      widget.rigController.updateIkTarget(
+        viewport: widget.nativeController,
+        sceneKey: widget.sceneKey,
+        effector: chain.effector,
+        upper: chain.upper,
+        lower: chain.lower,
+        end: chain.end,
+        targetX: nextTarget.x,
+        targetY: nextTarget.y,
+        targetZ: nextTarget.z,
+        poleX: pole.x,
+        poleY: pole.y,
+        poleZ: pole.z,
+      );
+    }
+  }
+
+  Future<void> _endDrag() async {
+    await _startFuture;
+    await _flushPendingDrag();
+    try {
+      await widget.rigController.commitGesture();
+      await widget.nativeController.refreshJointScreenPoints(
+        widget.sceneKey,
+      );
+    } finally {
+      widget.workspaceController.commitPoseGesture();
+      _activeChain = null;
+      _target = null;
+      _pole = null;
+      _pendingDx = 0;
+      _pendingDy = 0;
+    }
+  }
+
+  Future<void> _cancelDrag() async {
+    _pendingDx = 0;
+    _pendingDy = 0;
+    await _startFuture;
+    await _dragFlush;
+    try {
+      await widget.rigController.cancelGesture(
+        viewport: widget.nativeController,
+        sceneKey: widget.sceneKey,
+      );
+    } finally {
+      widget.workspaceController.cancelPoseGesture();
+      _activeChain = null;
+      _target = null;
+      _pole = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (widget.workspaceController.navigationLocked) {
+      widget.workspaceController.cancelPoseGesture();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.chains.isEmpty ||
+        widget.nativeController.physicalWidth <= 0 ||
+        widget.nativeController.physicalHeight <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final byBone = <String, NativeJointScreenPoint>{
+      for (final point
+          in widget.nativeController.sceneJointScreenPoints(widget.sceneKey))
+        if (point.visible) point.bone: point,
+    };
+    final colors = Theme.of(context).colorScheme;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final logicalSize = Size(
+          constraints.maxWidth,
+          constraints.maxHeight,
+        );
+        final scaleX =
+            constraints.maxWidth / widget.nativeController.physicalWidth;
+        final scaleY =
+            constraints.maxHeight / widget.nativeController.physicalHeight;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            for (final chain in widget.chains)
+              if (byBone[chain.end] != null)
+                _IkEffectorHandle(
+                  label: chain.effector,
+                  x: byBone[chain.end]!.x * scaleX,
+                  y: byBone[chain.end]!.y * scaleY,
+                  selected:
+                      widget.rigController.selectedEffector == chain.effector,
+                  accent: colors.primary,
+                  onTap: () => unawaited(
+                    widget.rigController.selectEffector(chain.effector),
+                  ),
+                  onPanStart: () => _beginDrag(chain),
+                  onPanUpdate: (delta) => _queueDrag(delta, logicalSize),
+                  onPanEnd: () => unawaited(_endDrag()),
+                  onPanCancel: () => unawaited(_cancelDrag()),
+                ),
+          ],
+        );
+      },
+    );
+  }
+
+  double _distance3(
+    ({double x, double y, double z}) a,
+    ({double x, double y, double z}) b,
+  ) {
+    final dx = a.x - b.x;
+    final dy = a.y - b.y;
+    final dz = a.z - b.z;
+    return math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  (double, double, double) _normalizedPole(List<double> value) {
+    final x = value.isNotEmpty ? value[0] : 0.0;
+    final y = value.length > 1 ? value[1] : 0.0;
+    final z = value.length > 2 ? value[2] : 1.0;
+    final length = math.sqrt(x * x + y * y + z * z);
+    if (!length.isFinite || length < 1.0e-8) return (0.0, 0.0, 1.0);
+    return (x / length, y / length, z / length);
+  }
+}
+
+class _IkEffectorHandle extends StatelessWidget {
+  const _IkEffectorHandle({
+    required this.label,
+    required this.x,
+    required this.y,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+    required this.onPanStart,
+    required this.onPanUpdate,
+    required this.onPanEnd,
+    required this.onPanCancel,
+  });
+
+  final String label;
+  final double x;
+  final double y;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+  final VoidCallback onPanStart;
+  final ValueChanged<Offset> onPanUpdate;
+  final VoidCallback onPanEnd;
+  final VoidCallback onPanCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = selected ? 28.0 : 23.0;
+    return Positioned(
+      left: x - size / 2,
+      top: y - size / 2,
+      width: size,
+      height: size,
+      child: Tooltip(
+        message: '$label · drag',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          onPanStart: (_) => onPanStart(),
+          onPanUpdate: (details) => onPanUpdate(details.delta),
+          onPanEnd: (_) => onPanEnd(),
+          onPanCancel: onPanCancel,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: selected
+                  ? accent
+                  : accent.withValues(alpha: 0.22),
+              border: Border.all(
+                color: selected ? Colors.white : accent,
+                width: selected ? 2.4 : 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withValues(alpha: selected ? 0.42 : 0.2),
+                  blurRadius: selected ? 14 : 8,
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.open_with_rounded,
+              size: selected ? 15 : 12,
+              color: selected ? Colors.white : accent,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FkGizmoOverlay extends StatefulWidget {
+  const _FkGizmoOverlay({
+    required this.nativeController,
+    required this.rigController,
+    required this.workspaceController,
+    required this.sceneKey,
+    required this.boneConstraints,
+  });
+
+  final NativeViewportController nativeController;
+  final NativeRigController rigController;
+  final BuilderWorkspaceController workspaceController;
+  final String sceneKey;
+  final Map<String, RigBoneConstraintBinding> boneConstraints;
+
+  @override
+  State<_FkGizmoOverlay> createState() => _FkGizmoOverlayState();
+}
+
+class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
+  String? _axis;
+  double _delta = 0;
+  BridgeEuler? _base;
+  Future<void>? _startFuture;
+
+  void _begin(String axis) {
+    final future = _start(axis);
+    _startFuture = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_startFuture, future)) {
+          _startFuture = null;
+        }
+      }),
+    );
+  }
+
+  Future<void> _start(String axis) async {
+    final bone = widget.rigController.selectedBone;
+    if (bone == null) return;
+    _axis = axis;
+    _delta = 0;
+    _base = widget.rigController.selectedFkRotation ??
+        const BridgeEuler(x: 0, y: 0, z: 0);
+    widget.workspaceController.beginPoseGesture();
+    await widget.rigController.beginGesture();
+  }
+
+  void _update(DragUpdateDetails details) {
+    final bone = widget.rigController.selectedBone;
+    final axis = _axis;
+    final base = _base;
+    if (bone == null || axis == null || base == null) return;
+
+    final movement = axis == 'y'
+        ? -details.delta.dy
+        : axis == 'x'
+            ? details.delta.dx
+            : (details.delta.dx - details.delta.dy) * 0.5;
+    _delta += movement * 0.012;
+
+    final constraint = widget.boneConstraints[bone];
+    final nextX = axis == 'x'
+        ? (constraint?.clamp('x', base.x + _delta) ?? base.x + _delta)
+        : base.x;
+    final nextY = axis == 'y'
+        ? (constraint?.clamp('y', base.y + _delta) ?? base.y + _delta)
+        : base.y;
+    final nextZ = axis == 'z'
+        ? (constraint?.clamp('z', base.z + _delta) ?? base.z + _delta)
+        : base.z;
+
+    widget.rigController.updateFkRotation(
+      viewport: widget.nativeController,
+      sceneKey: widget.sceneKey,
+      bone: bone,
+      x: nextX,
+      y: nextY,
+      z: nextZ,
+    );
+  }
+
+  Future<void> _end() async {
+    await _startFuture;
+    try {
+      await widget.rigController.commitGesture();
+    } finally {
+      widget.workspaceController.commitPoseGesture();
+      _axis = null;
+      _delta = 0;
+      _base = null;
+    }
+  }
+
+  Future<void> _cancel() async {
+    await _startFuture;
+    try {
+      await widget.rigController.cancelGesture(
+        viewport: widget.nativeController,
+        sceneKey: widget.sceneKey,
+      );
+    } finally {
+      widget.workspaceController.cancelPoseGesture();
+      _axis = null;
+      _delta = 0;
+      _base = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bone = widget.rigController.selectedBone;
+    if (bone == null ||
+        widget.nativeController.physicalWidth <= 0 ||
+        widget.nativeController.physicalHeight <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    NativeJointScreenPoint? point;
+    for (final item
+        in widget.nativeController.sceneJointScreenPoints(widget.sceneKey)) {
+      if (item.visible && item.bone == bone) {
+        point = item;
+        break;
+      }
+    }
+    if (point == null) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final x = point!.x *
+            constraints.maxWidth /
+            widget.nativeController.physicalWidth;
+        final y = point.y *
+            constraints.maxHeight /
+            widget.nativeController.physicalHeight;
+
+        final allowed = widget.boneConstraints[bone]?.allowedAxes ??
+            const <String>{'x', 'y', 'z'};
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              left: x - 46,
+              top: y - 46,
+              width: 92,
+              height: 92,
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _FkRotationRingPainter(
+                    allowedAxes: allowed,
+                    activeAxis: _axis,
+                    accent: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
+            if (allowed.contains('x'))
+            _FkAxisHandle(
+              axis: 'X',
+              x: x + 32,
+              y: y,
+              active: _axis == 'x',
+              onStart: () => _begin('x'),
+              onUpdate: _update,
+              onEnd: () => unawaited(_end()),
+              onCancel: () => unawaited(_cancel()),
+            ),
+            if (allowed.contains('y'))
+            _FkAxisHandle(
+              axis: 'Y',
+              x: x,
+              y: y - 32,
+              active: _axis == 'y',
+              onStart: () => _begin('y'),
+              onUpdate: _update,
+              onEnd: () => unawaited(_end()),
+              onCancel: () => unawaited(_cancel()),
+            ),
+            if (allowed.contains('z'))
+            _FkAxisHandle(
+              axis: 'Z',
+              x: x + 24,
+              y: y + 24,
+              active: _axis == 'z',
+              onStart: () => _begin('z'),
+              onUpdate: _update,
+              onEnd: () => unawaited(_end()),
+              onCancel: () => unawaited(_cancel()),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FkRotationRingPainter extends CustomPainter {
+  const _FkRotationRingPainter({
+    required this.allowedAxes,
+    required this.activeAxis,
+    required this.accent,
+  });
+
+  final Set<String> allowedAxes;
+  final String? activeAxis;
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final baseRadius = size.shortestSide * 0.34;
+
+    void drawRing(String axis, double radius, double start, double sweep) {
+      if (!allowedAxes.contains(axis)) return;
+      final active = activeAxis == axis;
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = active ? 3.2 : 1.6
+        ..strokeCap = StrokeCap.round
+        ..color = active
+            ? accent
+            : accent.withValues(alpha: 0.52);
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        start,
+        sweep,
+        false,
+        paint,
+      );
+    }
+
+    drawRing('x', baseRadius, -math.pi * 0.22, math.pi * 1.44);
+    drawRing('y', baseRadius + 7, math.pi * 0.12, math.pi * 1.32);
+    drawRing('z', baseRadius + 14, -math.pi * 0.68, math.pi * 1.28);
+
+    canvas.drawCircle(
+      center,
+      3.2,
+      Paint()..color = accent.withValues(alpha: 0.9),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _FkRotationRingPainter oldDelegate) {
+    return oldDelegate.activeAxis != activeAxis ||
+        oldDelegate.accent != accent ||
+        oldDelegate.allowedAxes.length != allowedAxes.length ||
+        !oldDelegate.allowedAxes.containsAll(allowedAxes);
+  }
+}
+
+class _FkAxisHandle extends StatelessWidget {
+  const _FkAxisHandle({
+    required this.axis,
+    required this.x,
+    required this.y,
+    required this.active,
+    required this.onStart,
+    required this.onUpdate,
+    required this.onEnd,
+    required this.onCancel,
+  });
+
+  final String axis;
+  final double x;
+  final double y;
+  final bool active;
+  final VoidCallback onStart;
+  final ValueChanged<DragUpdateDetails> onUpdate;
+  final VoidCallback onEnd;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    const size = 24.0;
+    return Positioned(
+      left: x - size / 2,
+      top: y - size / 2,
+      width: size,
+      height: size,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (_) => onStart(),
+        onPanUpdate: onUpdate,
+        onPanEnd: (_) => onEnd(),
+        onPanCancel: onCancel,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: active
+                ? colors.primary
+                : colors.surface.withValues(alpha: 0.94),
+            border: Border.all(
+              color: active ? Colors.white : colors.primary,
+              width: active ? 2 : 1.4,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colors.primary.withValues(alpha: active ? 0.4 : 0.18),
+                blurRadius: active ? 12 : 7,
+              ),
+            ],
+          ),
+          child: Text(
+            axis,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              color: active ? Colors.white : colors.primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RigJointOverlay extends StatelessWidget {
+  const _RigJointOverlay({
+    required this.nativeController,
+    required this.rigController,
+    required this.sceneKey,
+  });
+
+  final NativeViewportController nativeController;
+  final NativeRigController rigController;
+  final String sceneKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final points = nativeController
+        .sceneJointScreenPoints(sceneKey)
+        .where((point) => point.visible)
+        .toList(growable: false)
+      ..sort((a, b) => b.depth.compareTo(a.depth));
+
+    if (points.isEmpty ||
+        nativeController.physicalWidth <= 0 ||
+        nativeController.physicalHeight <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final colors = Theme.of(context).colorScheme;
+    final selectedBone = rigController.selectedBone;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaleX =
+            constraints.maxWidth / nativeController.physicalWidth;
+        final scaleY =
+            constraints.maxHeight / nativeController.physicalHeight;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            for (final point in points)
+              _RigJointHandle(
+                point: point,
+                selected: point.bone == selectedBone,
+                x: point.x * scaleX,
+                y: point.y * scaleY,
+                accent: colors.primary,
+                onTap: () => unawaited(
+                  rigController.selectBone(point.bone),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RigJointHandle extends StatelessWidget {
+  const _RigJointHandle({
+    required this.point,
+    required this.selected,
+    required this.x,
+    required this.y,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final NativeJointScreenPoint point;
+  final bool selected;
+  final double x;
+  final double y;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = selected ? 18.0 : 13.0;
+    return Positioned(
+      left: x - size / 2,
+      top: y - size / 2,
+      width: size,
+      height: size,
+      child: Tooltip(
+        message: point.bone,
+        waitDuration: const Duration(milliseconds: 350),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: selected
+                  ? accent
+                  : accent.withValues(alpha: 0.18),
+              border: Border.all(
+                color: selected
+                    ? Colors.white
+                    : accent.withValues(alpha: 0.9),
+                width: selected ? 2 : 1.2,
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.38),
+                        blurRadius: 10,
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

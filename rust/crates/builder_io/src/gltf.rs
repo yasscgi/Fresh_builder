@@ -18,7 +18,7 @@ pub fn decode_gltf_scene(path: impl AsRef<Path>, meters_per_unit: f32) -> Result
         let reader = skin.reader(|buffer| Some(&buffers[buffer.index()]));
         let inverse_bind_matrices: Vec<[[f32; 4]; 4]> = reader
             .read_inverse_bind_matrices()
-            .map(|values| values.collect())
+            .map(|values| values.map(|matrix| scale_matrix_translation(matrix, scale)).collect())
             .unwrap_or_else(|| vec![identity_matrix(); skin.joints().count()]);
 
         let joint_nodes: Vec<_> = skin.joints().collect();
@@ -38,7 +38,7 @@ pub fn decode_gltf_scene(path: impl AsRef<Path>, meters_per_unit: f32) -> Result
                     name: node.name().map(str::to_owned).unwrap_or_else(|| format!("joint_{}", node.index())),
                     parent,
                     inverse_bind_matrix: inverse_bind_matrices[index],
-                    local_matrix: node.transform().matrix(),
+                    local_matrix: scale_matrix_translation(node.transform().matrix(), scale),
                 }
             })
             .collect();
@@ -123,6 +123,13 @@ pub fn decode_gltf_scene(path: impl AsRef<Path>, meters_per_unit: f32) -> Result
     Ok(scene)
 }
 
+fn scale_matrix_translation(mut matrix: [[f32; 4]; 4], scale: f32) -> [[f32; 4]; 4] {
+    matrix[3][0] *= scale;
+    matrix[3][1] *= scale;
+    matrix[3][2] *= scale;
+    matrix
+}
+
 fn normalize_weights(weights: [f32; 4]) -> [f32; 4] {
     let sum = weights.iter().copied().sum::<f32>();
     if sum <= f32::EPSILON || !sum.is_finite() {
@@ -138,7 +145,21 @@ fn normalize_weights(weights: [f32; 4]) -> [f32; 4] {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_weights;
+    use super::{normalize_weights, scale_matrix_translation};
+    use builder_render::identity_matrix;
+
+    #[test]
+    fn skeleton_matrix_translation_uses_scene_unit_scale() {
+        let mut matrix = identity_matrix();
+        matrix[3] = [100.0, -50.0, 25.0, 1.0];
+        let scaled = scale_matrix_translation(matrix, 0.001);
+        assert!((scaled[3][0] - 0.1).abs() < 1.0e-6);
+        assert!((scaled[3][1] + 0.05).abs() < 1.0e-6);
+        assert!((scaled[3][2] - 0.025).abs() < 1.0e-6);
+        assert_eq!(scaled[0], matrix[0]);
+        assert_eq!(scaled[1], matrix[1]);
+        assert_eq!(scaled[2], matrix[2]);
+    }
 
     #[test]
     fn skin_weights_are_normalized() {
