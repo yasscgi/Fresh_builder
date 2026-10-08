@@ -2154,14 +2154,27 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
   double _pendingDx = 0;
   double _pendingDy = 0;
   Future<void>? _dragFlush;
+  Future<void>? _startFuture;
+
+  void _beginDrag(IkChainBinding chain) {
+    final future = _startDrag(chain);
+    _startFuture = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_startFuture, future)) {
+          _startFuture = null;
+        }
+      }),
+    );
+  }
 
   Future<void> _startDrag(IkChainBinding chain) async {
     _pendingDx = 0;
     _pendingDy = 0;
     _activeChain = chain;
 
-    await widget.rigController.selectEffector(chain.effector);
     widget.workspaceController.beginPoseGesture();
+    await widget.rigController.selectEffector(chain.effector);
     await widget.rigController.beginGesture();
 
     final upper = await widget.nativeController.sceneJointWorldPosition(
@@ -2284,6 +2297,7 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
   }
 
   Future<void> _endDrag() async {
+    await _startFuture;
     await _flushPendingDrag();
     try {
       await widget.rigController.commitGesture();
@@ -2300,6 +2314,7 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
   Future<void> _cancelDrag() async {
     _pendingDx = 0;
     _pendingDy = 0;
+    await _startFuture;
     await _dragFlush;
     try {
       await widget.rigController.cancelGesture(
@@ -2363,7 +2378,7 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
                   onTap: () => unawaited(
                     widget.rigController.selectEffector(chain.effector),
                   ),
-                  onPanStart: () => unawaited(_startDrag(chain)),
+                  onPanStart: () => _beginDrag(chain),
                   onPanUpdate: (delta) => _queueDrag(delta, logicalSize),
                   onPanEnd: () => unawaited(_endDrag()),
                   onPanCancel: () => unawaited(_cancelDrag()),
@@ -2487,6 +2502,19 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
   String? _axis;
   double _delta = 0;
   BridgeEuler? _base;
+  Future<void>? _startFuture;
+
+  void _begin(String axis) {
+    final future = _start(axis);
+    _startFuture = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_startFuture, future)) {
+          _startFuture = null;
+        }
+      }),
+    );
+  }
 
   Future<void> _start(String axis) async {
     final bone = widget.rigController.selectedBone;
@@ -2523,6 +2551,7 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
   }
 
   Future<void> _end() async {
+    await _startFuture;
     try {
       await widget.rigController.commitGesture();
     } finally {
@@ -2534,6 +2563,7 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
   }
 
   Future<void> _cancel() async {
+    await _startFuture;
     try {
       await widget.rigController.cancelGesture(
         viewport: widget.nativeController,
@@ -2583,7 +2613,7 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
               x: x + 32,
               y: y,
               active: _axis == 'x',
-              onStart: () => unawaited(_start('x')),
+              onStart: () => _begin('x'),
               onUpdate: _update,
               onEnd: () => unawaited(_end()),
               onCancel: () => unawaited(_cancel()),
@@ -2593,7 +2623,7 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
               x: x,
               y: y - 32,
               active: _axis == 'y',
-              onStart: () => unawaited(_start('y')),
+              onStart: () => _begin('y'),
               onUpdate: _update,
               onEnd: () => unawaited(_end()),
               onCancel: () => unawaited(_cancel()),
@@ -2603,7 +2633,7 @@ class _FkGizmoOverlayState extends State<_FkGizmoOverlay> {
               x: x + 24,
               y: y + 24,
               active: _axis == 'z',
-              onStart: () => unawaited(_start('z')),
+              onStart: () => _begin('z'),
               onUpdate: _update,
               onEnd: () => unawaited(_end()),
               onCancel: () => unawaited(_cancel()),
