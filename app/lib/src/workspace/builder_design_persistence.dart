@@ -163,6 +163,9 @@ final class BuilderDesignPersistence {
       boundaryEdges: report.boundaryEdges,
       nonManifoldEdges: report.nonManifoldEdges,
       invalidIndices: report.invalidIndices,
+      sizeXmm: report.sizeXmm,
+      sizeYmm: report.sizeYmm,
+      sizeZmm: report.sizeZmm,
       watertight: report.watertight,
     );
   }
@@ -333,6 +336,9 @@ final class BuilderPrintValidationResult {
     required this.boundaryEdges,
     required this.nonManifoldEdges,
     required this.invalidIndices,
+    required this.sizeXmm,
+    required this.sizeYmm,
+    required this.sizeZmm,
     required this.watertight,
   });
 
@@ -342,5 +348,8 @@ final class BuilderPrintValidationResult {
   final int boundaryEdges;
   final int nonManifoldEdges;
   final int invalidIndices;
+  final double sizeXmm;
+  final double sizeYmm;
+  final double sizeZmm;
   final bool watertight;
 }
