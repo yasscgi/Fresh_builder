@@ -1317,6 +1317,363 @@ class _RigPanel extends StatelessWidget {
   }
 }
 
+class _IkEditor extends StatefulWidget {
+  const _IkEditor({
+    required this.chains,
+    required this.rigController,
+    required this.viewportController,
+    required this.workspace,
+    required this.sceneKey,
+  });
+
+  final List<IkChainBinding> chains;
+  final NativeRigController rigController;
+  final NativeViewportController viewportController;
+  final BuilderWorkspaceController workspace;
+  final String sceneKey;
+
+  @override
+  State<_IkEditor> createState() => _IkEditorState();
+}
+
+class _IkEditorState extends State<_IkEditor> {
+  IkChainBinding? _selected;
+  ({double x, double y, double z})? _baseTarget;
+  ({double x, double y, double z})? _pole;
+  double _reach = 0.1;
+  double _offsetX = 0;
+  double _offsetY = 0;
+  double _offsetZ = 0;
+  bool _loading = false;
+
+  @override
+  void didUpdateWidget(covariant _IkEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final effector = _selected?.effector;
+    if (effector != null &&
+        !widget.chains.any((chain) => chain.effector == effector)) {
+      _selected = null;
+      _baseTarget = null;
+      _pole = null;
+      _offsetX = 0;
+      _offsetY = 0;
+      _offsetZ = 0;
+    }
+  }
+
+  Future<void> _selectChain(IkChainBinding? chain) async {
+    if (chain == null) {
+      setState(() {
+        _selected = null;
+        _baseTarget = null;
+        _pole = null;
+      });
+      return;
+    }
+
+    setState(() => _loading = true);
+    final upper = await widget.viewportController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.upper,
+    );
+    final lower = await widget.viewportController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.lower,
+    );
+    final end = await widget.viewportController.sceneJointWorldPosition(
+      widget.sceneKey,
+      chain.end,
+    );
+
+    if (!mounted) return;
+    if (upper == null || lower == null || end == null) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    final upperLength = _distance3(upper, lower);
+    final lowerLength = _distance3(lower, end);
+    final reach = math.max(upperLength + lowerLength, 0.001);
+    final poleDirection = _normalizedPole(chain.poleDirection);
+    final pole = (
+      x: upper.x + poleDirection.$1 * reach,
+      y: upper.y + poleDirection.$2 * reach,
+      z: upper.z + poleDirection.$3 * reach,
+    );
+
+    setState(() {
+      _selected = chain;
+      _baseTarget = end;
+      _pole = pole;
+      _reach = reach;
+      _offsetX = 0;
+      _offsetY = 0;
+      _offsetZ = 0;
+      _loading = false;
+    });
+  }
+
+  Future<void> _beginGesture() async {
+    if (_selected == null || _baseTarget == null || _pole == null) return;
+    widget.workspace.beginPoseGesture();
+    await widget.rigController.beginGesture();
+  }
+
+  void _updateAxis(String axis, double value) {
+    final chain = _selected;
+    final base = _baseTarget;
+    final pole = _pole;
+    if (chain == null || base == null || pole == null) return;
+
+    setState(() {
+      if (axis == 'x') _offsetX = value;
+      if (axis == 'y') _offsetY = value;
+      if (axis == 'z') _offsetZ = value;
+    });
+
+    widget.rigController.updateIkTarget(
+      viewport: widget.viewportController,
+      sceneKey: widget.sceneKey,
+      effector: chain.effector,
+      upper: chain.upper,
+      lower: chain.lower,
+      end: chain.end,
+      targetX: base.x + _offsetX,
+      targetY: base.y + _offsetY,
+      targetZ: base.z + _offsetZ,
+      poleX: pole.x,
+      poleY: pole.y,
+      poleZ: pole.z,
+    );
+  }
+
+  Future<void> _commitGesture() async {
+    final base = _baseTarget;
+    try {
+      await widget.rigController.commitGesture();
+      if (mounted && base != null) {
+        setState(() {
+          _baseTarget = (
+            x: base.x + _offsetX,
+            y: base.y + _offsetY,
+            z: base.z + _offsetZ,
+          );
+          _offsetX = 0;
+          _offsetY = 0;
+          _offsetZ = 0;
+        });
+      }
+    } finally {
+      widget.workspace.commitPoseGesture();
+    }
+  }
+
+  Future<void> _cancelGesture() async {
+    final chain = _selected;
+    try {
+      await widget.rigController.cancelGesture(
+        viewport: widget.viewportController,
+        sceneKey: widget.sceneKey,
+      );
+      if (chain != null) {
+        final end = await widget.viewportController.sceneJointWorldPosition(
+          widget.sceneKey,
+          chain.end,
+        );
+        if (mounted && end != null) {
+          setState(() {
+            _baseTarget = end;
+            _offsetX = 0;
+            _offsetY = 0;
+            _offsetZ = 0;
+          });
+        }
+      }
+    } finally {
+      widget.workspace.cancelPoseGesture();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final selected = widget.chains.any((chain) => chain.effector == _selected?.effector)
+        ? _selected
+        : null;
+
+    if (widget.chains.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: colors.errorContainer.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Text(
+          'No valid IK chains found. Upload Rig V3 metadata or a supported Mixamo skeleton.',
+          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Text('IK effector', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+            const Spacer(),
+            Text(
+              widget.chains.every((chain) => chain.source == 'rig_v3') ? 'Rig V3' : 'Fallback',
+              style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: colors.primary),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        DropdownButtonFormField<String>(
+          initialValue: selected?.effector,
+          isExpanded: true,
+          hint: const Text('Select hand or foot'),
+          items: widget.chains
+              .map((chain) => DropdownMenuItem<String>(
+                    value: chain.effector,
+                    child: Text(chain.effector),
+                  ))
+              .toList(growable: false),
+          onChanged: _loading
+              ? null
+              : (value) {
+                  IkChainBinding? match;
+                  for (final chain in widget.chains) {
+                    if (chain.effector == value) {
+                      match = chain;
+                      break;
+                    }
+                  }
+                  unawaited(_selectChain(match));
+                },
+          decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+        ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.only(top: 10),
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+        if (selected != null && _baseTarget != null && _pole != null) ...[
+          const SizedBox(height: 10),
+          _IkAxisSlider(
+            axis: 'X',
+            value: _offsetX,
+            limit: _reach,
+            onStart: () => unawaited(_beginGesture()),
+            onChanged: (value) => _updateAxis('x', value),
+            onEnd: () => unawaited(_commitGesture()),
+          ),
+          _IkAxisSlider(
+            axis: 'Y',
+            value: _offsetY,
+            limit: _reach,
+            onStart: () => unawaited(_beginGesture()),
+            onChanged: (value) => _updateAxis('y', value),
+            onEnd: () => unawaited(_commitGesture()),
+          ),
+          _IkAxisSlider(
+            axis: 'Z',
+            value: _offsetZ,
+            limit: _reach,
+            onStart: () => unawaited(_beginGesture()),
+            onChanged: (value) => _updateAxis('z', value),
+            onEnd: () => unawaited(_commitGesture()),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '\${selected.upper} → \${selected.lower} → \${selected.end}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 7, color: colors.onSurfaceVariant),
+                ),
+              ),
+              TextButton(
+                onPressed: () => unawaited(_cancelGesture()),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  double _distance3(
+    ({double x, double y, double z}) a,
+    ({double x, double y, double z}) b,
+  ) {
+    final dx = a.x - b.x;
+    final dy = a.y - b.y;
+    final dz = a.z - b.z;
+    return math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  (double, double, double) _normalizedPole(List<double> value) {
+    final x = value.isNotEmpty ? value[0] : 0.0;
+    final y = value.length > 1 ? value[1] : 0.0;
+    final z = value.length > 2 ? value[2] : 1.0;
+    final length = math.sqrt(x * x + y * y + z * z);
+    if (!length.isFinite || length < 1.0e-8) return (0.0, 0.0, 1.0);
+    return (x / length, y / length, z / length);
+  }
+}
+
+class _IkAxisSlider extends StatelessWidget {
+  const _IkAxisSlider({
+    required this.axis,
+    required this.value,
+    required this.limit,
+    required this.onStart,
+    required this.onChanged,
+    required this.onEnd,
+  });
+
+  final String axis;
+  final double value;
+  final double limit;
+  final VoidCallback onStart;
+  final ValueChanged<double> onChanged;
+  final VoidCallback onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeLimit = math.max(limit, 0.001);
+    return Row(
+      children: [
+        SizedBox(
+          width: 18,
+          child: Text(axis, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900)),
+        ),
+        Expanded(
+          child: Slider(
+            min: -safeLimit,
+            max: safeLimit,
+            value: value.clamp(-safeLimit, safeLimit),
+            onChangeStart: (_) => onStart(),
+            onChanged: onChanged,
+            onChangeEnd: (_) => onEnd(),
+          ),
+        ),
+        SizedBox(
+          width: 52,
+          child: Text(
+            '\${(value * 1000).round()} mm',
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _FkEditor extends StatelessWidget {
   const _FkEditor({
     required this.jointNames,
