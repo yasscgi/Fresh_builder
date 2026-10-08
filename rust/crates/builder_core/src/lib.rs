@@ -212,6 +212,37 @@ pub struct PoseState {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct AssetTransformState {
+    pub scene_key: String,
+    pub translation: Vec3,
+    pub rotation_xyz: Vec3,
+    pub scale: f32,
+}
+
+impl AssetTransformState {
+    pub fn identity(scene_key: impl Into<String>) -> Self {
+        Self {
+            scene_key: scene_key.into(),
+            translation: Vec3::ZERO,
+            rotation_xyz: Vec3::ZERO,
+            scale: 1.0,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.scene_key.trim().is_empty()
+            && self.translation.x.is_finite()
+            && self.translation.y.is_finite()
+            && self.translation.z.is_finite()
+            && self.rotation_xyz.x.is_finite()
+            && self.rotation_xyz.y.is_finite()
+            && self.rotation_xyz.z.is_finite()
+            && self.scale.is_finite()
+            && self.scale > 0.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct AssetSelection {
     pub category_id: String,
     pub asset_id: String,
@@ -224,16 +255,40 @@ pub struct BuilderDesign {
     pub version: u32,
     pub product_id: String,
     pub assets: Vec<AssetSelection>,
+    pub asset_transforms: Vec<AssetTransformState>,
     pub pose: PoseState,
 }
 
 impl BuilderDesign {
+    pub fn set_asset_transform(&mut self, transform: AssetTransformState) -> Result<(), String> {
+        if !transform.is_valid() {
+            return Err("Asset transform is invalid".to_owned());
+        }
+        if let Some(existing) = self
+            .asset_transforms
+            .iter_mut()
+            .find(|item| item.scene_key == transform.scene_key)
+        {
+            *existing = transform;
+        } else {
+            self.asset_transforms.push(transform);
+        }
+        Ok(())
+    }
+
+    pub fn asset_transform(&self, scene_key: &str) -> Option<&AssetTransformState> {
+        self.asset_transforms
+            .iter()
+            .find(|item| item.scene_key == scene_key)
+    }
+
     pub fn new(product_id: impl Into<String>) -> Self {
         Self {
             format: "fresh_builder_design".to_owned(),
-            version: 4,
+            version: 5,
             product_id: product_id.into(),
             assets: Vec::new(),
+            asset_transforms: Vec::new(),
             pose: PoseState::default(),
         }
     }
@@ -434,6 +489,25 @@ mod tests {
             detect_rig_profile_generation("unknown"),
             RigProfileGeneration::Unsupported
         );
+    }
+
+    #[test]
+    fn builder_design_v5_persists_scene_transforms() {
+        let mut design = BuilderDesign::new("product");
+        assert_eq!(design.version, 5);
+
+        design
+            .set_asset_transform(AssetTransformState {
+                scene_key: "slot:hat".into(),
+                translation: Vec3::new(0.01, 0.02, 0.03),
+                rotation_xyz: Vec3::new(0.1, 0.2, 0.3),
+                scale: 1.25,
+            })
+            .unwrap();
+
+        let saved = design.asset_transform("slot:hat").unwrap();
+        assert_eq!(saved.scale, 1.25);
+        assert_eq!(saved.translation, Vec3::new(0.01, 0.02, 0.03));
     }
 
     #[test]
