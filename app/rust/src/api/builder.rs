@@ -261,7 +261,6 @@ pub fn inspect_local_scene(
     let scene = inspect_scene_file(&path, meters_per_unit, skinned)?;
     let readiness = match scene.readiness() {
         ImportReadiness::Ready => "ready",
-        ImportReadiness::NeedsFbxSkinning => "needs_fbx_skinning",
         ImportReadiness::Unsupported => "unsupported",
     };
 
@@ -427,13 +426,17 @@ impl NativeViewportSession {
                     scene_key: scene_key.clone(),
                     path,
                     format: format_name,
-                    readiness: "ready_static_fbx".to_owned(),
+                    readiness: "ready_fbx".to_owned(),
                     loaded_to_gpu: true,
                     mesh_count: scene.meshes.len() as u32,
                     vertex_count: scene.vertex_count() as u64,
                     index_count: scene.index_count() as u64,
-                    joint_count: 0,
-                    skinned_mesh_count: 0,
+                    joint_count: scene.joint_count(),
+                    skinned_mesh_count: scene
+                        .meshes
+                        .iter()
+                        .filter(|mesh| mesh.skinned)
+                        .count() as u32,
                 };
 
                 let mut inner = self.lock_inner()?;
