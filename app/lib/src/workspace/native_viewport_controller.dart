@@ -349,6 +349,20 @@ class NativeViewportController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<BridgeExportStatus?> exportCurrentStl(String path) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final result = await session.exportCurrentStl(path: path);
+      _sceneError = null;
+      return result;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> removeScene(String sceneKey) async {
     _pendingScenes.remove(sceneKey);
     _loadedSceneKeys.remove(sceneKey);
