@@ -238,6 +238,25 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
+  Future<({double x, double y, double z})?> sceneJointWorldPosition(
+    String sceneKey,
+    String bone,
+  ) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final value = await session.sceneJointWorldPosition(
+        sceneKey: sceneKey,
+        bone: bone,
+      );
+      return (x: value.x, y: value.y, z: value.z);
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> removeScene(String sceneKey) async {
     _pendingScenes.remove(sceneKey);
     _loadedSceneKeys.remove(sceneKey);
