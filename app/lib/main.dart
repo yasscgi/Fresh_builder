@@ -19,6 +19,7 @@ import 'src/rust/api/rig.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/workspace/asset_transform_ui.dart';
 import 'src/workspace/builder_design_persistence.dart';
+import 'src/workspace/builder_persistence_actions.dart';
 import 'src/workspace/builder_workspace.dart';
 import 'src/workspace/current_builder_ui.dart';
 import 'src/workspace/native_rig_controller.dart';
@@ -228,6 +229,156 @@ class _BuilderPageState extends State<BuilderPage> {
     } catch (_) {
       if (!mounted) return;
       _workspace.setBusy(false, status: 'STL export failed');
+    }
+  }
+
+  BuilderAssetChoice? _savedChoice(BuilderSavedAsset saved) {
+    final data = _cloudData;
+    if (data == null) return null;
+
+    BuilderCloudAsset? asset;
+    for (final candidate in data.assets) {
+      if (candidate.id == saved.assetId) {
+        asset = candidate;
+        break;
+      }
+    }
+    if (asset == null) return null;
+
+    BuilderCloudVariation? variation;
+    final variationId = saved.variationId;
+    if (variationId != null && variationId.isNotEmpty) {
+      for (final candidate in asset.variations) {
+        if (candidate.id == variationId) {
+          variation = candidate;
+          break;
+        }
+      }
+    }
+    return BuilderAssetChoice(asset: asset, variation: variation);
+  }
+
+  Future<void> _restoreCurrentDesign() async {
+    final product = _selectedProduct;
+    final cache = _assetCache;
+    if (product == null || cache == null || _cloudData == null) {
+      _workspace.setBusy(false, status: 'Open a cloud product before restore');
+      return;
+    }
+
+    _workspace.setBusy(true, status: 'Restoring Design v5…');
+    try {
+      final saved = await _persistence.loadSnapshot(
+        productName: product.name,
+      );
+      if (saved == null) {
+        _workspace.setBusy(false, status: 'No saved Design v5 found');
+        return;
+      }
+      if (saved.productId.isNotEmpty && saved.productId != product.id) {
+        _workspace.setBusy(false, status: 'Saved design belongs to another product');
+        return;
+      }
+
+      await _nativeRig.reset();
+      _workspace.cancelPoseGesture();
+      _workspace.cancelAssetTransformGesture();
+      await _nativeViewport.clearScenes();
+      _sceneSelections.clear();
+
+      BuilderAssetChoice? selected;
+      for (final item in saved.assets) {
+        final choice = _savedChoice(item);
+        if (choice == null) continue;
+        final local = await cache.getOrDownload(choice);
+        await _nativeViewport.upsertLocalScene(
+          sceneKey: item.sceneKey,
+          path: local.file.path,
+          metersPerUnit: _metersPerUnit(choice),
+        );
+        _sceneSelections[item.sceneKey] = choice;
+        if (item.sceneKey != _baseCharacterSceneKey) {
+          selected ??= choice;
+        }
+      }
+
+      for (final entry in saved.transforms.entries) {
+        if (_nativeViewport.hasLoadedScene(entry.key)) {
+          await _nativeViewport.setSceneTransform(
+            sceneKey: entry.key,
+            transform: entry.value,
+          );
+        }
+      }
+
+      if (_nativeViewport.hasLoadedScene(_baseCharacterSceneKey)) {
+        await _nativeRig.restoreDesignPose(
+          viewport: _nativeViewport,
+          sceneKey: _baseCharacterSceneKey,
+          pose: saved.pose,
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedAsset = selected;
+          _cachedAsset = null;
+          _assetError = null;
+          _assetLoading = false;
+        });
+      }
+      _workspace.setRigVisible(_nativeRig.mode != BridgeRigMode.none);
+      _workspace.setBusy(
+        false,
+        status: 'Design v5 restored · ${_sceneSelections.length} scenes',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Design restore failed');
+    }
+  }
+
+  Future<void> _validateCurrentPrint() async {
+    _workspace.setBusy(true, status: 'Validating printable geometry…');
+    try {
+      final report = await _persistence.validateCurrentPrint(
+        viewport: _nativeViewport,
+      );
+      if (!mounted) return;
+      final state = report.watertight ? 'Watertight' : 'Needs repair';
+      _workspace.setBusy(
+        false,
+        status:
+            '$state · ${report.triangleCount} tris · '
+            '${report.boundaryEdges} boundary · '
+            '${report.nonManifoldEdges} non-manifold · '
+            '${report.degenerateTriangles} degenerate',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Print validation failed');
+    }
+  }
+
+  Future<void> _exportCurrent3mf() async {
+    final productName = _selectedProduct?.name ?? 'fresh-builder';
+    _workspace.setBusy(true, status: 'Baking current pose to 3MF…');
+    try {
+      final result = await _persistence.exportCurrent3mf(
+        productName: productName,
+        viewport: _nativeViewport,
+      );
+      if (!mounted) return;
+      _workspace.setBusy(
+        false,
+        status:
+            '3MF saved · ${result.sceneCount} scenes · '
+            '${result.meshCount} meshes · '
+            '${result.triangleCount} triangles',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: '3MF export failed');
     }
   }
 
@@ -942,7 +1093,10 @@ class _BuilderPageState extends State<BuilderPage> {
               onOpenHand: () => unawaited(_setHandOpen(true)),
               onCloseHand: () => unawaited(_setHandOpen(false)),
               onSaveDesign: () => unawaited(_saveCurrentDesign()),
+              onRestoreDesign: () => unawaited(_restoreCurrentDesign()),
+              onValidatePrint: () => unawaited(_validateCurrentPrint()),
               onExportStl: () => unawaited(_exportCurrentStl()),
+              onExport3mf: () => unawaited(_exportCurrent3mf()),
             ),
           ),
       ],
@@ -1067,6 +1221,18 @@ class _BuilderPageState extends State<BuilderPage> {
             assetName: _selectedAsset?.name,
             assetLoading: _assetLoading,
             cacheHit: _cachedAsset?.cacheHit,
+          ),
+        ),
+        Positioned(
+          right: 8,
+          bottom: _cloudData == null ? 72 : 164,
+          child: BuilderPersistenceActions(
+            compact: true,
+            onSave: () => unawaited(_saveCurrentDesign()),
+            onRestore: () => unawaited(_restoreCurrentDesign()),
+            onValidate: () => unawaited(_validateCurrentPrint()),
+            onExportStl: () => unawaited(_exportCurrentStl()),
+            onExport3mf: () => unawaited(_exportCurrent3mf()),
           ),
         ),
         if (_cloudData != null)
@@ -1395,7 +1561,10 @@ class _RigPanel extends StatelessWidget {
     required this.onOpenHand,
     required this.onCloseHand,
     required this.onSaveDesign,
+    required this.onRestoreDesign,
+    required this.onValidatePrint,
     required this.onExportStl,
+    required this.onExport3mf,
   });
 
   final NativeRigController rigController;
@@ -1414,7 +1583,10 @@ class _RigPanel extends StatelessWidget {
   final VoidCallback onOpenHand;
   final VoidCallback onCloseHand;
   final VoidCallback onSaveDesign;
+  final VoidCallback onRestoreDesign;
+  final VoidCallback onValidatePrint;
   final VoidCallback onExportStl;
+  final VoidCallback onExport3mf;
 
   @override
   Widget build(BuildContext context) {
@@ -1623,24 +1795,12 @@ class _RigPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onSaveDesign,
-                  icon: const Icon(Icons.save_rounded, size: 16),
-                  label: const Text('Save Design'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onExportStl,
-                  icon: const Icon(Icons.print_rounded, size: 16),
-                  label: const Text('Export STL'),
-                ),
-              ),
-            ],
+          BuilderPersistenceActions(
+            onSave: onSaveDesign,
+            onRestore: onRestoreDesign,
+            onValidate: onValidatePrint,
+            onExportStl: onExportStl,
+            onExport3mf: onExport3mf,
           ),
         ],
       ),
