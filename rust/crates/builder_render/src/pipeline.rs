@@ -5,6 +5,7 @@ pub struct MeshPipeline {
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
     pub joint_palette_bind_group_layout: wgpu::BindGroupLayout,
+    pub model_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl MeshPipeline {
@@ -58,9 +59,29 @@ impl MeshPipeline {
                 }],
             });
 
+
+        let model_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Fresh Builder Model Transform Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Fresh Builder Mesh Pipeline Layout"),
-            bind_group_layouts: &[Some(&camera_layout), Some(&joint_palette_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&camera_layout),
+                Some(&joint_palette_bind_group_layout),
+                Some(&model_bind_group_layout),
+            ],
             immediate_size: 0,
         });
 
@@ -113,6 +134,7 @@ impl MeshPipeline {
             camera_buffer,
             camera_bind_group,
             joint_palette_bind_group_layout,
+            model_bind_group_layout,
         }
     }
 
