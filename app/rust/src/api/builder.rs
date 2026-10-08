@@ -280,11 +280,15 @@ pub fn decode_local_scene(
 ) -> Result<DecodedSceneInfo, String> {
     let format = detect_asset_format(&path);
     let scene = match format {
-        AssetFormat::Glb | AssetFormat::Gltf => decode_gltf_scene(&path, meters_per_unit)?,
-        AssetFormat::Fbx => {
-            return Err("FBX decoder is intentionally separate; no FBX-to-GLB conversion is performed".to_owned())
+        AssetFormat::Glb | AssetFormat::Gltf => {
+            decode_gltf_scene(&path, meters_per_unit)?
         }
-        other => return Err(format!("Native scene decoding is not implemented for {other:?} yet")),
+        AssetFormat::Fbx => decode_fbx_scene(&path)?,
+        other => {
+            return Err(format!(
+                "Native scene decoding is not implemented for {other:?} yet"
+            ))
+        }
     };
 
     Ok(DecodedSceneInfo {
