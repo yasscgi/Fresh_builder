@@ -1,5 +1,91 @@
 import '../cloud/builder_cloud_models.dart';
 
+class RigBoneConstraintBinding {
+  const RigBoneConstraintBinding({
+    required this.bone,
+    required this.primaryAxis,
+    required this.hingeAxis,
+    required this.allowedAxes,
+    required this.source,
+  });
+
+  final String bone;
+  final List<double>? primaryAxis;
+  final List<double>? hingeAxis;
+  final Set<String> allowedAxes;
+  final String source;
+
+  bool allows(String axis) => allowedAxes.contains(axis.toLowerCase());
+}
+
+Map<String, RigBoneConstraintBinding> resolveRigBoneConstraints({
+  required BuilderCloudData? data,
+}) {
+  final authored = _authoredRigMaps(data);
+  for (final candidate in authored) {
+    final constraints = _parseRigBoneConstraints(candidate);
+    if (constraints.isNotEmpty) return constraints;
+  }
+  return const <String, RigBoneConstraintBinding>{};
+}
+
+Map<String, RigBoneConstraintBinding> _parseRigBoneConstraints(JsonMap rig) {
+  final bones = rig['bones'];
+  if (bones is! List) {
+    return const <String, RigBoneConstraintBinding>{};
+  }
+
+  final out = <String, RigBoneConstraintBinding>{};
+  for (final item in bones) {
+    final row = jsonMap(item);
+    final source = _firstString(
+      row,
+      ['source_name', 'sourceName', 'source', 'bone', 'bone_name', 'boneName'],
+    );
+    if (source == null || source.isEmpty) continue;
+
+    final primary = _optionalVec3(
+      row['primary_axis'] ?? row['primaryAxis'],
+    );
+    final hinge = _optionalVec3(
+      row['hinge_axis'] ?? row['hingeAxis'],
+    );
+    final allowed = hinge == null
+        ? const <String>{'x', 'y', 'z'}
+        : <String>{_dominantAxis(hinge)};
+
+    out[source] = RigBoneConstraintBinding(
+      bone: source,
+      primaryAxis: primary,
+      hingeAxis: hinge,
+      allowedAxes: allowed,
+      source: 'rig_v3',
+    );
+  }
+  return out;
+}
+
+List<double>? _optionalVec3(Object? value) {
+  if (value == null) return null;
+  final parsed = _vec3(value, fallback: const [double.nan, double.nan, double.nan]);
+  if (parsed.any((component) => !component.isFinite)) return null;
+  final lengthSquared = parsed.fold<double>(
+    0,
+    (sum, component) => sum + component * component,
+  );
+  if (!lengthSquared.isFinite || lengthSquared <= 1.0e-12) return null;
+  return parsed;
+}
+
+String _dominantAxis(List<double> vector) {
+  final ax = vector[0].abs();
+  final ay = vector[1].abs();
+  final az = vector[2].abs();
+  if (ax >= ay && ax >= az) return 'x';
+  if (ay >= ax && ay >= az) return 'y';
+  return 'z';
+}
+
 class IkChainBinding {
   const IkChainBinding({
     required this.effector,
