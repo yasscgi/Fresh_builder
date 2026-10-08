@@ -992,7 +992,11 @@ class _AssetTransformPanel extends StatelessWidget {
               ),
             ],
           ),
-          child: switch (tool) {
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              switch (tool) {
             BuilderTool.move => _TransformAxes(
                 title: 'Move asset',
                 values: [transform.tx, transform.ty, transform.tz],
@@ -1032,7 +1036,20 @@ class _AssetTransformPanel extends StatelessWidget {
                     onChanged(transform.copyWith(scale: value)),
               ),
             _ => const SizedBox.shrink(),
-          },
+              },
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => onChanged(
+                    const NativeSceneTransform(),
+                  ),
+                  icon: const Icon(Icons.restart_alt_rounded, size: 14),
+                  label: const Text('Reset'),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
