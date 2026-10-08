@@ -149,6 +149,14 @@ pub enum BridgeViewPreset {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct BridgeScreenPoint {
+    pub x: f32,
+    pub y: f32,
+    pub depth: f32,
+    pub visible: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct BridgeSceneTransform {
     pub translation: BridgeVec3,
     pub rotation: BridgeVec3,
@@ -440,6 +448,64 @@ impl NativeViewportSession {
             x: position[0],
             y: position[1],
             z: position[2],
+        })
+    }
+
+    pub fn world_point_screen_position(
+        &self,
+        point: BridgeVec3,
+    ) -> Result<BridgeScreenPoint, String> {
+        let inner = self.lock_inner()?;
+        let (width, height) = inner.renderer.size();
+        let aspect = width as f32 / height.max(1) as f32;
+        let clip = project_clip(
+            inner.camera.view_projection(aspect),
+            [point.x, point.y, point.z],
+        );
+        let w = clip[3];
+        if !clip.iter().all(|value| value.is_finite()) || w <= 1.0e-6 {
+            return Ok(BridgeScreenPoint {
+                x: 0.0,
+                y: 0.0,
+                depth: 1.0,
+                visible: false,
+            });
+        }
+
+        let ndc_x = clip[0] / w;
+        let ndc_y = clip[1] / w;
+        let ndc_z = clip[2] / w;
+        Ok(BridgeScreenPoint {
+            x: (ndc_x * 0.5 + 0.5) * width as f32,
+            y: (1.0 - (ndc_y * 0.5 + 0.5)) * height as f32,
+            depth: ndc_z,
+            visible: ndc_x >= -1.0
+                && ndc_x <= 1.0
+                && ndc_y >= -1.0
+                && ndc_y <= 1.0
+                && ndc_z >= 0.0
+                && ndc_z <= 1.0,
+        })
+    }
+
+    pub fn screen_drag_world_delta_at(
+        &self,
+        point: BridgeVec3,
+        delta_x_pixels: f32,
+        delta_y_pixels: f32,
+    ) -> Result<BridgeVec3, String> {
+        let inner = self.lock_inner()?;
+        let (_, height) = inner.renderer.size();
+        let delta = inner.camera.screen_drag_world_delta(
+            [point.x, point.y, point.z],
+            delta_x_pixels,
+            delta_y_pixels,
+            height as f32,
+        );
+        Ok(BridgeVec3 {
+            x: delta[0],
+            y: delta[1],
+            z: delta[2],
         })
     }
 
