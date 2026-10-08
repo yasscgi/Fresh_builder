@@ -63,8 +63,7 @@ class _BuilderSavedDesignPickerSheetState
     );
   }
 
-  Future<void> _delete(BuilderCloudSavedDesign design) async {
-    await widget.repository.deleteDesign(design.id);
+  void _refresh() {
     if (!mounted) return;
     setState(() {
       _future = widget.repository.listDesigns(
@@ -72,6 +71,55 @@ class _BuilderSavedDesignPickerSheetState
         limit: 30,
       );
     });
+  }
+
+  Future<void> _delete(BuilderCloudSavedDesign design) async {
+    await widget.repository.deleteDesign(design.id);
+    _refresh();
+  }
+
+  Future<void> _duplicate(BuilderCloudSavedDesign design) async {
+    await widget.repository.duplicateDesign(design);
+    _refresh();
+  }
+
+  Future<void> _rename(BuilderCloudSavedDesign design) async {
+    final controller = TextEditingController(text: design.name);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename design'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 80,
+          decoration: const InputDecoration(
+            labelText: 'Design name',
+          ),
+          onSubmitted: (value) =>
+              Navigator.of(context).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (value == null || value.trim().isEmpty) return;
+    await widget.repository.renameDesign(
+      designId: design.id,
+      name: value,
+    );
+    _refresh();
   }
 
   @override
@@ -213,13 +261,51 @@ class _BuilderSavedDesignPickerSheetState
                             color: colors.onSurfaceVariant,
                           ),
                         ),
-                        trailing: IconButton(
-                          tooltip: 'Delete design',
-                          onPressed: () => _delete(design),
-                          icon: const Icon(
-                            Icons.delete_outline_rounded,
-                            size: 17,
-                          ),
+                        trailing: PopupMenuButton<String>(
+                          tooltip: 'Design actions',
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'rename':
+                                _rename(design);
+                                return;
+                              case 'duplicate':
+                                _duplicate(design);
+                                return;
+                              case 'delete':
+                                _delete(design);
+                                return;
+                            }
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: 'rename',
+                              child: ListTile(
+                                dense: true,
+                                leading: Icon(Icons.edit_rounded, size: 17),
+                                title: Text('Rename'),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'duplicate',
+                              child: ListTile(
+                                dense: true,
+                                leading: Icon(Icons.copy_rounded, size: 17),
+                                title: Text('Duplicate'),
+                              ),
+                            ),
+                            PopupMenuDivider(),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: ListTile(
+                                dense: true,
+                                leading: Icon(
+                                  Icons.delete_outline_rounded,
+                                  size: 17,
+                                ),
+                                title: Text('Delete'),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     );
