@@ -425,6 +425,30 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
+  Future<int?> setSceneHandOpen({
+    required String sceneKey,
+    required double openAmount,
+  }) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+
+    try {
+      final affected = await session.setSceneHandOpen(
+        sceneKey: sceneKey,
+        openAmount: openAmount,
+      );
+      await _markTextureFrame();
+      await _refreshJointScreenPoints(sceneKey);
+      _sceneError = null;
+      notifyListeners();
+      return affected;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> resetScenePose(String sceneKey) async {
     final session = _session;
     if (session == null || _error != null) return;
