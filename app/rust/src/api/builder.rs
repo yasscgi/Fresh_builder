@@ -1,7 +1,7 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
 use builder_io::{
-    decode_gltf_scene, detect_asset_format, inspect_scene_file, write_binary_stl,
-    AssetFormat, ImportReadiness,
+    decode_gltf_scene, detect_asset_format, inspect_scene_file, validate_print_scene,
+    write_3mf, write_binary_stl, AssetFormat, ImportReadiness,
 };
 use std::{collections::BTreeMap, sync::Mutex};
 
@@ -157,6 +157,17 @@ pub struct BridgeScreenPoint {
     pub y: f32,
     pub depth: f32,
     pub visible: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct BridgePrintValidation {
+    pub mesh_count: u32,
+    pub triangle_count: u64,
+    pub degenerate_triangles: u64,
+    pub boundary_edges: u64,
+    pub non_manifold_edges: u64,
+    pub invalid_indices: u64,
+    pub watertight: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -642,22 +653,14 @@ impl NativeViewportSession {
         })
     }
 
-    pub fn export_current_stl(
-        &self,
-        path: String,
-    ) -> Result<BridgeExportStatus, String> {
-        if path.trim().is_empty() {
-            return Err("Export path must not be empty".to_owned());
-        }
-
+    fn baked_merged_scene(&self) -> Result<(RenderScene, u32), String> {
         let inner = self.lock_inner()?;
         if inner.scenes.is_empty() {
-            return Err("Cannot export an empty Builder viewport".to_owned());
+            return Err("Builder viewport has no loaded scenes".to_owned());
         }
 
         let mut merged = RenderScene::default();
         let scene_count = inner.scenes.len() as u32;
-
         for (scene_key, scene) in &inner.scenes {
             let mut baked = scene.baked_current_scene()?;
             for mesh in &mut baked.meshes {
@@ -665,20 +668,64 @@ impl NativeViewportSession {
             }
             merged.meshes.extend(baked.meshes);
         }
-
         if merged.is_empty() {
             return Err("Current Builder viewport has no exportable geometry".to_owned());
         }
+        Ok((merged, scene_count))
+    }
 
+    pub fn validate_current_print(&self) -> Result<BridgePrintValidation, String> {
+        let (merged, _) = self.baked_merged_scene()?;
+        let report = validate_print_scene(&merged);
+        Ok(BridgePrintValidation {
+            mesh_count: report.mesh_count,
+            triangle_count: report.triangle_count,
+            degenerate_triangles: report.degenerate_triangles,
+            boundary_edges: report.boundary_edges,
+            non_manifold_edges: report.non_manifold_edges,
+            invalid_indices: report.invalid_indices,
+            watertight: report.watertight(),
+        })
+    }
+
+    pub fn export_current_stl(
+        &self,
+        path: String,
+    ) -> Result<BridgeExportStatus, String> {
+        if path.trim().is_empty() {
+            return Err("Export path must not be empty".to_owned());
+        }
+        let (merged, scene_count) = self.baked_merged_scene()?;
         let triangle_count = merged
             .meshes
             .iter()
             .map(|mesh| (mesh.indices.len() / 3) as u64)
             .sum::<u64>();
         let mesh_count = merged.meshes.len() as u32;
-
         write_binary_stl(&merged, &path)?;
+        Ok(BridgeExportStatus {
+            path,
+            scene_count,
+            mesh_count,
+            triangle_count,
+        })
+    }
 
+    pub fn export_current_3mf(
+        &self,
+        path: String,
+    ) -> Result<BridgeExportStatus, String> {
+        if path.trim().is_empty() {
+            return Err("Export path must not be empty".to_owned());
+        }
+        let (merged, scene_count) = self.baked_merged_scene()?;
+        let triangle_count = merged
+            .meshes
+            .iter()
+            .map(|mesh| (mesh.indices.len() / 3) as u64)
+            .sum::<u64>();
+        let mesh_count = merged.meshes.len() as u32;
+        write_3mf(&merged, &path)?;
         Ok(BridgeExportStatus {
             path,
             scene_count,
