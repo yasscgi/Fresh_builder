@@ -1195,6 +1195,20 @@ class _AssetViewportGizmoState extends State<_AssetViewportGizmo> {
     );
   }
 
+  Future<void> _flushPendingMove() async {
+    while (_moveFlush != null ||
+        _pendingMoveX.abs() >= 0.001 ||
+        _pendingMoveY.abs() >= 0.001) {
+      _ensureMoveFlush();
+      final active = _moveFlush;
+      if (active != null) {
+        await active;
+      } else {
+        break;
+      }
+    }
+  }
+
   Future<void> _flushMove() async {
     final sceneKey = widget.sceneKey;
     if (sceneKey == null) return;
@@ -1223,7 +1237,7 @@ class _AssetViewportGizmoState extends State<_AssetViewportGizmo> {
   }
 
   Future<void> _finish() async {
-    await _moveFlush;
+    await _flushPendingMove();
     _base = null;
     widget.onGestureEnd();
     await _refreshProjection();
