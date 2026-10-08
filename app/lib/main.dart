@@ -2186,6 +2186,7 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
       y: upper.y + direction.$2 * reach,
       z: upper.z + direction.$3 * reach,
     );
+    _ensureDragFlush();
   }
 
   void _queueDrag(Offset logicalDelta, Size logicalSize) {
@@ -2276,7 +2277,7 @@ class _RigIkOverlayState extends State<_RigIkOverlay> {
   }
 
   Future<void> _endDrag() async {
-    await _dragFlush;
+    await _flushPendingDrag();
     try {
       await widget.rigController.commitGesture();
     } finally {
