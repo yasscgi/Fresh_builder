@@ -38,6 +38,24 @@ impl GpuScene {
         self.skeleton_pose.joint_names()
     }
 
+    pub fn joint_world_position(&self, joint_index: usize) -> Result<[f32; 3], String> {
+        self.skeleton_pose.joint_world_position(joint_index)
+    }
+
+    pub fn apply_two_bone_solution(
+        &mut self,
+        queue: &wgpu::Queue,
+        upper: usize,
+        lower: usize,
+        end: usize,
+        solved_mid: [f32; 3],
+        solved_end: [f32; 3],
+    ) -> Result<(), String> {
+        self.skeleton_pose
+            .apply_two_bone_solution(upper, lower, end, solved_mid, solved_end)?;
+        self.upload_current_palette(queue)
+    }
+
     pub fn set_joint_local_matrix(
         &mut self,
         queue: &wgpu::Queue,
