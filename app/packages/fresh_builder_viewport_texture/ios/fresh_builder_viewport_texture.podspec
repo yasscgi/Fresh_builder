@@ -14,4 +14,10 @@ Native Flutter texture bridge for Fresh Builder viewport frames.
   s.platform         = :ios, '13.0'
   s.swift_version    = '5.0'
   s.static_framework = true
+  s.pod_target_xcconfig = {
+    'OTHER_LDFLAGS' => '$(inherited) -Wl,-u,_fresh_builder_frame_capture_enabled -Wl,-u,_fresh_builder_copy_latest_frame'
+  }
+  s.user_target_xcconfig = {
+    'OTHER_LDFLAGS' => '$(inherited) -Wl,-u,_fresh_builder_frame_capture_enabled -Wl,-u,_fresh_builder_copy_latest_frame'
+  }
 end
