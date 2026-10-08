@@ -542,6 +542,45 @@ class _BuilderPageState extends State<BuilderPage> {
     return sceneKey;
   }
 
+  void _beginSelectedAssetTransform() {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    _workspace.beginAssetTransformGesture();
+    _nativeViewport.beginSceneTransformGesture(sceneKey);
+  }
+
+  Future<void> _commitSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    try {
+      await _nativeViewport.commitSceneTransformGesture(sceneKey);
+    } finally {
+      _workspace.commitAssetTransformGesture();
+    }
+  }
+
+  Future<void> _cancelSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    try {
+      await _nativeViewport.cancelSceneTransformGesture(sceneKey);
+    } finally {
+      _workspace.cancelAssetTransformGesture();
+    }
+  }
+
+  Future<void> _undoSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    await _nativeViewport.undoSceneTransform(sceneKey);
+  }
+
+  Future<void> _redoSelectedAssetTransform() async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    await _nativeViewport.redoSceneTransform(sceneKey);
+  }
+
   Future<void> _updateSelectedAssetTransform(
     NativeSceneTransform transform,
   ) async {
@@ -717,6 +756,15 @@ class _BuilderPageState extends State<BuilderPage> {
                     sceneKey: _selectedTransformSceneKey,
                     onChanged: (transform) =>
                         unawaited(_updateSelectedAssetTransform(transform)),
+                    onGestureStart: _beginSelectedAssetTransform,
+                    onGestureEnd: () =>
+                        unawaited(_commitSelectedAssetTransform()),
+                    onGestureCancel: () =>
+                        unawaited(_cancelSelectedAssetTransform()),
+                    onUndo: () =>
+                        unawaited(_undoSelectedAssetTransform()),
+                    onRedo: () =>
+                        unawaited(_redoSelectedAssetTransform()),
                     compact: !desktop,
                   ),
                 ),
@@ -867,6 +915,15 @@ class _BuilderPageState extends State<BuilderPage> {
             sceneKey: _selectedTransformSceneKey,
             onChanged: (transform) =>
                 unawaited(_updateSelectedAssetTransform(transform)),
+            onGestureStart: _beginSelectedAssetTransform,
+            onGestureEnd: () =>
+                unawaited(_commitSelectedAssetTransform()),
+            onGestureCancel: () =>
+                unawaited(_cancelSelectedAssetTransform()),
+            onUndo: () =>
+                unawaited(_undoSelectedAssetTransform()),
+            onRedo: () =>
+                unawaited(_redoSelectedAssetTransform()),
             compact: true,
           ),
         ),
@@ -954,6 +1011,11 @@ class _AssetTransformPanel extends StatelessWidget {
     required this.viewport,
     required this.sceneKey,
     required this.onChanged,
+    required this.onGestureStart,
+    required this.onGestureEnd,
+    required this.onGestureCancel,
+    required this.onUndo,
+    required this.onRedo,
     required this.compact,
   });
 
@@ -961,6 +1023,11 @@ class _AssetTransformPanel extends StatelessWidget {
   final NativeViewportController viewport;
   final String? sceneKey;
   final ValueChanged<NativeSceneTransform> onChanged;
+  final VoidCallback onGestureStart;
+  final VoidCallback onGestureEnd;
+  final VoidCallback onGestureCancel;
+  final VoidCallback onUndo;
+  final VoidCallback onRedo;
   final bool compact;
 
   @override
@@ -1002,6 +1069,8 @@ class _AssetTransformPanel extends StatelessWidget {
                 values: [transform.tx, transform.ty, transform.tz],
                 min: -0.25,
                 max: 0.25,
+                onStart: onGestureStart,
+                onEnd: onGestureEnd,
                 formatter: (value) => '${(value * 1000).round()} mm',
                 onChanged: (axis, value) {
                   onChanged(
@@ -1018,6 +1087,8 @@ class _AssetTransformPanel extends StatelessWidget {
                 values: [transform.rx, transform.ry, transform.rz],
                 min: -math.pi,
                 max: math.pi,
+                onStart: onGestureStart,
+                onEnd: onGestureEnd,
                 formatter: (value) =>
                     '${(value * 180 / math.pi).round()}°',
                 onChanged: (axis, value) {
@@ -1032,21 +1103,37 @@ class _AssetTransformPanel extends StatelessWidget {
               ),
             BuilderTool.scale => _TransformScale(
                 value: transform.scale,
+                onStart: onGestureStart,
+                onEnd: onGestureEnd,
                 onChanged: (value) =>
                     onChanged(transform.copyWith(scale: value)),
               ),
             _ => const SizedBox.shrink(),
               },
               const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => onChanged(
-                    const NativeSceneTransform(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    tooltip: 'Undo transform',
+                    onPressed: viewport.canUndoSceneTransform(key) ? onUndo : null,
+                    icon: const Icon(Icons.undo_rounded, size: 16),
                   ),
-                  icon: const Icon(Icons.restart_alt_rounded, size: 14),
-                  label: const Text('Reset'),
-                ),
+                  IconButton(
+                    tooltip: 'Redo transform',
+                    onPressed: viewport.canRedoSceneTransform(key) ? onRedo : null,
+                    icon: const Icon(Icons.redo_rounded, size: 16),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      onGestureStart();
+                      onChanged(const NativeSceneTransform());
+                      onGestureEnd();
+                    },
+                    icon: const Icon(Icons.restart_alt_rounded, size: 14),
+                    label: const Text('Reset'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1063,6 +1150,8 @@ class _TransformAxes extends StatelessWidget {
     required this.min,
     required this.max,
     required this.formatter,
+    required this.onStart,
+    required this.onEnd,
     required this.onChanged,
   });
 
@@ -1071,6 +1160,8 @@ class _TransformAxes extends StatelessWidget {
   final double min;
   final double max;
   final String Function(double value) formatter;
+  final VoidCallback onStart;
+  final VoidCallback onEnd;
   final void Function(int axis, double value) onChanged;
 
   @override
@@ -1101,8 +1192,10 @@ class _TransformAxes extends StatelessWidget {
                 child: Slider(
                   min: min,
                   max: max,
-                  value: values[axis].clamp(min, max),
+                  value: values[axis].clamp(min, max).toDouble(),
+                  onChangeStart: (_) => onStart(),
                   onChanged: (value) => onChanged(axis, value),
+                  onChangeEnd: (_) => onEnd(),
                 ),
               ),
               SizedBox(
@@ -1126,10 +1219,14 @@ class _TransformAxes extends StatelessWidget {
 class _TransformScale extends StatelessWidget {
   const _TransformScale({
     required this.value,
+    required this.onStart,
+    required this.onEnd,
     required this.onChanged,
   });
 
   final double value;
+  final VoidCallback onStart;
+  final VoidCallback onEnd;
   final ValueChanged<double> onChanged;
 
   @override
@@ -1148,8 +1245,10 @@ class _TransformScale extends StatelessWidget {
               child: Slider(
                 min: 0.25,
                 max: 3.0,
-                value: value.clamp(0.25, 3.0),
+                value: value.clamp(0.25, 3.0).toDouble(),
+                onChangeStart: (_) => onStart(),
                 onChanged: onChanged,
+                onChangeEnd: (_) => onEnd(),
               ),
             ),
             SizedBox(
