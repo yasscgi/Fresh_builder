@@ -644,6 +644,32 @@ impl NativeViewportSession {
         Ok(result)
     }
 
+    pub fn set_scene_hand_open(
+        &self,
+        scene_key: String,
+        open_amount: f32,
+    ) -> Result<u32, String> {
+        if !open_amount.is_finite() {
+            return Err("Hand open amount must be finite".to_owned());
+        }
+
+        let mut inner = self.lock_inner()?;
+        let affected = {
+            let NativeViewportSessionInner {
+                renderer,
+                scenes,
+                ..
+            } = &mut *inner;
+            let scene = scenes
+                .get_mut(&scene_key)
+                .ok_or_else(|| format!("Native scene {scene_key} is not loaded"))?;
+            renderer.set_scene_hand_open(scene, open_amount)? as u32
+        };
+
+        inner.render_frame();
+        Ok(affected)
+    }
+
     pub fn reset_scene_pose(&self, scene_key: String) -> Result<(), String> {
         let mut inner = self.lock_inner()?;
         {
