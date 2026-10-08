@@ -296,3 +296,14 @@ Completed on active PR #17:
 Known constraint boundary:
 - Rig V3 currently provides primary_axis/hinge_axis but no explicit angular min/max limits in the current core schema. No arbitrary angle limits were invented. A future schema field should carry authored limits before native hard-clamping is added.
 - Finger fallback is explicitly Mixamo-name based until uploader/Rig V3 exports dedicated finger metadata.
+
+## Continuation update — 2026-10-08 (optional FK rotation limits)
+
+- Rig V3 Flutter resolver now parses optional per-axis rotation_limits / rotationLimits / limits metadata.
+- Each bone constraint can clamp FK values per X/Y/Z without changing behavior for older rigs that omit limits.
+- Desktop/mobile FK sliders use authored min/max when present.
+- Viewport FK gizmo clamps rotation to authored limits before sending updates to NativeRigController/WGPU.
+- The page-level FK update path also clamps, so stale UI paths cannot bypass authored limits.
+- Added tests for optional FK rotation-limit parsing and clamping.
+
+Uploader work still needed: emit rotation_limits metadata from Blender when the autorig has authored joint limits. Existing V3 files remain compatible and unconstrained when limits are absent.
