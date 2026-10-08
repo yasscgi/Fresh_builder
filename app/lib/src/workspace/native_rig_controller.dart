@@ -97,6 +97,7 @@ class NativeRigController extends ChangeNotifier {
   }
 
   Future<void> beginGesture() async {
+    await _flushPendingFk();
     final session = await _requireSession();
     try {
       _state = await session.beginGesture();
