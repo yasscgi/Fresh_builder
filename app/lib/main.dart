@@ -984,6 +984,8 @@ class _BuilderPageState extends State<BuilderPage> {
               boneConstraints: resolveRigBoneConstraints(data: _cloudData),
               onOpenHand: () => unawaited(_setHandOpen(true)),
               onCloseHand: () => unawaited(_setHandOpen(false)),
+              onSaveDesign: () => unawaited(_saveDesignSnapshot()),
+              onExportStl: () => unawaited(_exportCurrentStl()),
             ),
           ),
       ],
@@ -1982,6 +1984,8 @@ class _RigPanel extends StatelessWidget {
     required this.boneConstraints,
     required this.onOpenHand,
     required this.onCloseHand,
+    required this.onSaveDesign,
+    required this.onExportStl,
   });
 
   final NativeRigController rigController;
@@ -1999,6 +2003,8 @@ class _RigPanel extends StatelessWidget {
   final Map<String, RigBoneConstraintBinding> boneConstraints;
   final VoidCallback onOpenHand;
   final VoidCallback onCloseHand;
+  final VoidCallback onSaveDesign;
+  final VoidCallback onExportStl;
 
   @override
   Widget build(BuildContext context) {
@@ -2211,17 +2217,17 @@ class _RigPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.face_retouching_natural_rounded, size: 16),
-                  label: const Text('Face'),
+                  onPressed: onSaveDesign,
+                  icon: const Icon(Icons.save_rounded, size: 16),
+                  label: const Text('Save Design'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {},
+                  onPressed: onExportStl,
                   icon: const Icon(Icons.print_rounded, size: 16),
-                  label: const Text('Print / Export'),
+                  label: const Text('Export STL'),
                 ),
               ),
             ],
