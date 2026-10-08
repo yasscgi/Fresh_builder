@@ -10,6 +10,8 @@ pub struct PrintValidationReport {
     pub boundary_edges: u64,
     pub non_manifold_edges: u64,
     pub invalid_indices: u64,
+    pub inconsistent_winding_edges: u64,
+    pub connected_components: u32,
     pub size_meters: [f32; 3],
 }
 
@@ -19,6 +21,7 @@ impl PrintValidationReport {
             && self.degenerate_triangles == 0
             && self.boundary_edges == 0
             && self.non_manifold_edges == 0
+            && self.inconsistent_winding_edges == 0
     }
 }
 
@@ -32,7 +35,8 @@ pub fn validate_print_scene(scene: &RenderScene) -> PrintValidationReport {
     let mut has_vertex = false;
 
     for mesh in &scene.meshes {
-        let mut edges = HashMap::<(u32, u32), u32>::new();
+        let mut edges = HashMap::<(u32, u32), (u32, i32)>::new();
+        let mut triangle_edges = Vec::<[(u32, u32); 3]>::new();
 
         for vertex in &mesh.vertices {
             let position = vertex.position;
@@ -66,22 +70,38 @@ pub fn validate_print_scene(scene: &RenderScene) -> PrintValidationReport {
                 report.degenerate_triangles += 1;
             }
 
-            for (u, v) in [(a, b), (b, c), (c, a)] {
+            let oriented = [(a, b), (b, c), (c, a)];
+            let mut canonical = [(0_u32, 0_u32); 3];
+            for (slot, (u, v)) in oriented.into_iter().enumerate() {
                 let edge = if u < v { (u, v) } else { (v, u) };
-                *edges.entry(edge).or_default() += 1;
+                canonical[slot] = edge;
+                let direction = if (u, v) == edge { 1 } else { -1 };
+                let entry = edges.entry(edge).or_insert((0, 0));
+                entry.0 += 1;
+                entry.1 += direction;
             }
+            triangle_edges.push(canonical);
         }
 
         if mesh.indices.len() % 3 != 0 {
             report.invalid_indices += 1;
         }
 
-        for count in edges.values().copied() {
+        for (count, direction_sum) in edges.values().copied() {
             match count {
                 1 => report.boundary_edges += 1,
-                2 => {}
+                2 => {
+                    if direction_sum != 0 {
+                        report.inconsistent_winding_edges += 1;
+                    }
+                }
                 _ => report.non_manifold_edges += 1,
             }
+        }
+
+        if !triangle_edges.is_empty() {
+            report.connected_components +=
+                triangle_component_count(&triangle_edges) as u32;
         }
     }
 
@@ -94,6 +114,48 @@ pub fn validate_print_scene(scene: &RenderScene) -> PrintValidationReport {
     }
 
     report
+}
+
+
+fn triangle_component_count(triangle_edges: &[[(u32, u32); 3]]) -> usize {
+    let mut edge_to_triangles =
+        HashMap::<(u32, u32), Vec<usize>>::new();
+    for (triangle_index, edges) in triangle_edges.iter().enumerate() {
+        for edge in edges {
+            edge_to_triangles
+                .entry(*edge)
+                .or_default()
+                .push(triangle_index);
+        }
+    }
+
+    let mut visited = vec![false; triangle_edges.len()];
+    let mut stack = Vec::<usize>::new();
+    let mut components = 0usize;
+
+    for start in 0..triangle_edges.len() {
+        if visited[start] {
+            continue;
+        }
+        components += 1;
+        visited[start] = true;
+        stack.push(start);
+
+        while let Some(current) = stack.pop() {
+            for edge in triangle_edges[current] {
+                if let Some(neighbors) = edge_to_triangles.get(&edge) {
+                    for &neighbor in neighbors {
+                        if !visited[neighbor] {
+                            visited[neighbor] = true;
+                            stack.push(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    components
 }
 
 fn triangle_area_twice(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> f32 {
@@ -129,6 +191,52 @@ mod tests {
         };
         let report = validate_print_scene(&scene);
         assert_eq!(report.size_meters, [0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    fn detects_inconsistent_shared_edge_winding() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "winding".into(),
+                vertices: vec![
+                    RenderVertex { position: [0.0, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [1.0, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [0.0, 1.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [1.0, 1.0, 0.0], ..RenderVertex::default() },
+                ],
+                indices: vec![
+                    0, 1, 2,
+                    1, 2, 3,
+                ],
+                skinned: false,
+            }],
+            ..RenderScene::default()
+        };
+        let report = validate_print_scene(&scene);
+        assert_eq!(report.inconsistent_winding_edges, 1);
+        assert_eq!(report.connected_components, 1);
+    }
+
+    #[test]
+    fn counts_disconnected_triangle_shells() {
+        let scene = RenderScene {
+            meshes: vec![RenderMesh {
+                name: "shells".into(),
+                vertices: vec![
+                    RenderVertex { position: [0.0, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [1.0, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [0.0, 1.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [10.0, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [11.0, 0.0, 0.0], ..RenderVertex::default() },
+                    RenderVertex { position: [10.0, 1.0, 0.0], ..RenderVertex::default() },
+                ],
+                indices: vec![0, 1, 2, 3, 4, 5],
+                skinned: false,
+            }],
+            ..RenderScene::default()
+        };
+        let report = validate_print_scene(&scene);
+        assert_eq!(report.connected_components, 2);
     }
 
     #[test]
