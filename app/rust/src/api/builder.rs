@@ -195,7 +195,7 @@ pub fn core_status() -> CoreStatus {
     CoreStatus {
         name: "Fresh Builder Native Core".to_owned(),
         bridge_version: env!("CARGO_PKG_VERSION").to_owned(),
-        design_version: 4,
+        design_version: 5,
         rig_profile: "freshstl_mixamo_rig_v3".to_owned(),
     }
 }
@@ -998,7 +998,7 @@ mod tests {
     #[test]
     fn bridge_reports_contract_versions() {
         let status = core_status();
-        assert_eq!(status.design_version, 4);
+        assert_eq!(status.design_version, 5);
         assert_eq!(status.rig_profile, "freshstl_mixamo_rig_v3");
     }
 }
