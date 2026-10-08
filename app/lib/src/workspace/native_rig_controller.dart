@@ -436,6 +436,7 @@ class NativeRigController extends ChangeNotifier {
       sceneKey: sceneKey,
       openAmount: snapshot.handOpen,
     );
+    await viewport.refreshJointScreenPoints(sceneKey);
   }
 
   Future<NativeRigSession> _requireSession() async {
