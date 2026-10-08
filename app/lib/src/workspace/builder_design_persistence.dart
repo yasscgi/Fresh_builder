@@ -220,6 +220,9 @@ final class BuilderDesignPersistence {
     required String productName,
     required NativeViewportController viewport,
   }) async {
+    final validation = await validateCurrentPrint(viewport: viewport);
+    _assertExportable(validation);
+
     final directory = await getApplicationDocumentsDirectory();
     final safeName = _safeName(productName);
     final stamp = DateTime.now()
@@ -239,6 +242,7 @@ final class BuilderDesignPersistence {
       sceneCount: status.sceneCount,
       meshCount: status.meshCount,
       triangleCount: status.triangleCount,
+      validation: validation,
     );
   }
 
@@ -246,6 +250,9 @@ final class BuilderDesignPersistence {
     required String productName,
     required NativeViewportController viewport,
   }) async {
+    final validation = await validateCurrentPrint(viewport: viewport);
+    _assertExportable(validation);
+
     final directory = await getApplicationDocumentsDirectory();
     final safeName = _safeName(productName);
     final stamp = DateTime.now()
@@ -265,7 +272,23 @@ final class BuilderDesignPersistence {
       sceneCount: status.sceneCount,
       meshCount: status.meshCount,
       triangleCount: status.triangleCount,
+      validation: validation,
     );
+  }
+
+  void _assertExportable(BuilderPrintValidationResult validation) {
+    if (validation.invalidIndices > 0) {
+      throw BuilderExportValidationException(
+        'Export blocked: geometry contains invalid triangle indices.',
+        validation,
+      );
+    }
+    if (validation.triangleCount <= 0) {
+      throw BuilderExportValidationException(
+        'Export blocked: no printable triangles were found.',
+        validation,
+      );
+    }
   }
 
   String _safeName(String value) {
@@ -282,12 +305,14 @@ final class BuilderExportResult {
     required this.sceneCount,
     required this.meshCount,
     required this.triangleCount,
+    required this.validation,
   });
 
   final String path;
   final int sceneCount;
   final int meshCount;
   final int triangleCount;
+  final BuilderPrintValidationResult validation;
 }
 
 
@@ -402,4 +427,18 @@ final class BuilderPrintValidationResult {
   final double sizeYmm;
   final double sizeZmm;
   final bool watertight;
+}
+
+
+final class BuilderExportValidationException implements Exception {
+  const BuilderExportValidationException(
+    this.message,
+    this.validation,
+  );
+
+  final String message;
+  final BuilderPrintValidationResult validation;
+
+  @override
+  String toString() => message;
 }
