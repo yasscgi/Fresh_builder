@@ -14,6 +14,11 @@ dependencies:
 flutter:
   plugin:
     platforms:
+      android:
+        package: com.freshstl.fresh_builder_viewport_texture
+        pluginClass: FreshBuilderViewportTexturePlugin
+      ios:
+        pluginClass: FreshBuilderViewportTexturePlugin
       windows:
         pluginClass: FreshBuilderViewportTexturePluginCApi
       linux:
