@@ -6,11 +6,18 @@ struct JointPalette {
     matrices: array<mat4x4<f32>>,
 };
 
+struct Model {
+    matrix: mat4x4<f32>,
+};
+
 @group(0) @binding(0)
 var<uniform> camera: Camera;
 
 @group(1) @binding(0)
 var<storage, read> joint_palette: JointPalette;
+
+@group(2) @binding(0)
+var<uniform> model: Model;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -77,10 +84,12 @@ fn vs_main(input: VertexIn) -> VertexOut {
     let skin = skin_matrix(input);
     let skinned_position = skin * vec4<f32>(input.position, 1.0);
     let skinned_normal = (skin * vec4<f32>(input.normal, 0.0)).xyz;
+    let world_position = model.matrix * skinned_position;
+    let world_normal = (model.matrix * vec4<f32>(skinned_normal, 0.0)).xyz;
 
-    out.clip_position = camera.view_proj * skinned_position;
-    if dot(skinned_normal, skinned_normal) > 0.00000001 {
-        out.normal = normalize(skinned_normal);
+    out.clip_position = camera.view_proj * world_position;
+    if dot(world_normal, world_normal) > 0.00000001 {
+        out.normal = normalize(world_normal);
     } else {
         out.normal = input.normal;
     }
