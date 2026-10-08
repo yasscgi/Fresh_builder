@@ -171,6 +171,50 @@ impl SkeletonPose {
         Ok(())
     }
 
+    pub fn apply_mixamo_hand_open(&mut self, open_amount: f32) -> Result<usize, String> {
+        if !open_amount.is_finite() {
+            return Err("Hand open amount must be finite".to_owned());
+        }
+
+        let open = open_amount.clamp(0.0, 1.0);
+        let curl = (1.0 - open) * 1.15;
+        let mut affected = 0usize;
+
+        for index in 0..self.names.len() {
+            let name = normalize_joint_name(&self.names[index]);
+            let is_hand_finger =
+                (name.contains("lefthand") || name.contains("righthand"))
+                    && (name.contains("thumb")
+                        || name.contains("index")
+                        || name.contains("middle")
+                        || name.contains("ring")
+                        || name.contains("pinky"));
+            if !is_hand_finger {
+                continue;
+            }
+
+            let segment_scale = if name.ends_with('1') {
+                0.72
+            } else if name.ends_with('2') {
+                0.92
+            } else {
+                1.0
+            };
+            let angle = curl * segment_scale;
+
+            let delta = if name.contains("thumb") {
+                euler_xyz_matrix(0.0, angle * 0.28, angle * 0.62)
+            } else {
+                euler_xyz_matrix(0.0, 0.0, angle)
+            };
+
+            self.set_local_delta_matrix(index, delta)?;
+            affected += 1;
+        }
+
+        Ok(affected)
+    }
+
     pub fn reset_to_rest(&mut self) {
         self.current_local.clone_from(&self.rest_local);
     }
@@ -200,6 +244,15 @@ impl SkeletonPose {
             .map(|(global, inverse_bind)| mat4_mul(*global, *inverse_bind))
             .collect())
     }
+}
+
+
+fn normalize_joint_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn finite_vec3(value: [f32; 3]) -> bool {
@@ -681,6 +734,50 @@ mod tests {
             assert!((mid[axis] - solved_mid[axis]).abs() < 1.0e-4);
             assert!((end[axis] - solved_end[axis]).abs() < 1.0e-4);
         }
+    }
+
+    #[test]
+    fn mixamo_hand_open_changes_only_finger_joints() {
+        let skeleton = RenderSkeleton {
+            joints: vec![
+                RenderJoint {
+                    name: "mixamorig:LeftHand".into(),
+                    parent: None,
+                    inverse_bind_matrix: identity_matrix(),
+                    local_matrix: identity_matrix(),
+                },
+                RenderJoint {
+                    name: "mixamorig:LeftHandIndex1".into(),
+                    parent: Some(0),
+                    inverse_bind_matrix: identity_matrix(),
+                    local_matrix: translation(1.0, 0.0, 0.0),
+                },
+                RenderJoint {
+                    name: "mixamorig:LeftHandIndex2".into(),
+                    parent: Some(1),
+                    inverse_bind_matrix: identity_matrix(),
+                    local_matrix: translation(1.0, 0.0, 0.0),
+                },
+                RenderJoint {
+                    name: "mixamorig:Spine".into(),
+                    parent: None,
+                    inverse_bind_matrix: identity_matrix(),
+                    local_matrix: identity_matrix(),
+                },
+            ],
+        };
+
+        let mut pose = SkeletonPose::from_skeleton(&skeleton).unwrap();
+        let spine_before = pose.local_matrix(3).unwrap();
+        let index_before = pose.local_matrix(1).unwrap();
+
+        let affected = pose.apply_mixamo_hand_open(0.0).unwrap();
+        assert_eq!(affected, 2);
+        assert_ne!(pose.local_matrix(1).unwrap(), index_before);
+        assert_eq!(pose.local_matrix(3).unwrap(), spine_before);
+
+        pose.apply_mixamo_hand_open(1.0).unwrap();
+        assert_eq!(pose.local_matrix(1).unwrap(), pose.rest_local[1]);
     }
 
     #[test]
