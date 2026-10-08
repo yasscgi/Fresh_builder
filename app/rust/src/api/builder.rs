@@ -449,6 +449,7 @@ impl NativeViewportSession {
         let (width, height) = inner.renderer.size();
         let aspect = width as f32 / height.max(1) as f32;
         let view_projection = inner.camera.view_projection(aspect);
+        let depth_buffer = inner.renderer.read_depth32f().ok();
 
         let mut points = Vec::with_capacity(scene.joint_names().len());
         for (index, bone) in scene.joint_names().iter().enumerate() {
@@ -472,17 +473,36 @@ impl NativeViewportSession {
             let ndc_x = clip[0] / w;
             let ndc_y = clip[1] / w;
             let ndc_z = clip[2] / w;
-            let visible =
+            let screen_x = (ndc_x * 0.5 + 0.5) * width as f32;
+            let screen_y = (1.0 - (ndc_y * 0.5 + 0.5)) * height as f32;
+
+            let in_view =
                 ndc_x >= -1.05 && ndc_x <= 1.05 &&
                 ndc_y >= -1.05 && ndc_y <= 1.05 &&
                 ndc_z >= 0.0 && ndc_z <= 1.0;
 
+            let depth_visible = if in_view {
+                match &depth_buffer {
+                    Some(depth) => joint_is_depth_visible(
+                        depth,
+                        width,
+                        height,
+                        screen_x,
+                        screen_y,
+                        ndc_z,
+                    ),
+                    None => true,
+                }
+            } else {
+                false
+            };
+
             points.push(BridgeJointScreenPoint {
                 bone: bone.clone(),
-                x: (ndc_x * 0.5 + 0.5) * width as f32,
-                y: (1.0 - (ndc_y * 0.5 + 0.5)) * height as f32,
+                x: screen_x,
+                y: screen_y,
                 depth: ndc_z,
-                visible,
+                visible: in_view && depth_visible,
             });
         }
 
@@ -769,6 +789,42 @@ impl NativeViewportSession {
 }
 
 
+
+fn joint_is_depth_visible(
+    depth: &[f32],
+    width: u32,
+    height: u32,
+    screen_x: f32,
+    screen_y: f32,
+    joint_depth: f32,
+) -> bool {
+    if depth.len() != width as usize * height as usize {
+        return true;
+    }
+    if !screen_x.is_finite() || !screen_y.is_finite() || !joint_depth.is_finite() {
+        return false;
+    }
+
+    let x = screen_x.floor().clamp(0.0, width.saturating_sub(1) as f32) as u32;
+    let y = screen_y.floor().clamp(0.0, height.saturating_sub(1) as f32) as u32;
+    let radius = 2_i32;
+    let mut nearest = 1.0_f32;
+
+    for oy in -radius..=radius {
+        for ox in -radius..=radius {
+            let sx = (x as i32 + ox).clamp(0, width.saturating_sub(1) as i32) as u32;
+            let sy = (y as i32 + oy).clamp(0, height.saturating_sub(1) as i32) as u32;
+            let value = depth[(sy * width + sx) as usize];
+            if value.is_finite() {
+                nearest = nearest.min(value);
+            }
+        }
+    }
+
+    const DEPTH_TOLERANCE: f32 = 0.008;
+    joint_depth <= nearest + DEPTH_TOLERANCE
+}
+
 fn project_clip(matrix: [[f32; 4]; 4], point: [f32; 3]) -> [f32; 4] {
     let vector = [point[0], point[1], point[2], 1.0];
     [
@@ -851,6 +907,13 @@ mod tests {
         assert!(solved.reached_target);
         assert!((solved.end.x - 1.0).abs() < 1.0e-4);
         assert!((solved.end.y - 1.0).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn joint_depth_visibility_rejects_occluded_points() {
+        let depth = vec![0.4_f32; 25];
+        assert!(joint_is_depth_visible(&depth, 5, 5, 2.0, 2.0, 0.405));
+        assert!(!joint_is_depth_visible(&depth, 5, 5, 2.0, 2.0, 0.7));
     }
 
     #[test]
