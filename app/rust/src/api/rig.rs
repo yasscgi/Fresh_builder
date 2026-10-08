@@ -27,6 +27,7 @@ pub struct BridgePoint3 {
 struct RigPose {
     mode: BridgeRigMode,
     selected_bone: Option<String>,
+    selected_effector: Option<String>,
     fk: BTreeMap<String, BridgeEuler>,
     ik: BTreeMap<String, RigIkTarget>,
     hand_open: f32,
@@ -37,6 +38,7 @@ impl Default for RigPose {
         Self {
             mode: BridgeRigMode::None,
             selected_bone: None,
+            selected_effector: None,
             fk: BTreeMap::new(),
             ik: BTreeMap::new(),
             hand_open: 1.0,
@@ -48,6 +50,7 @@ impl Default for RigPose {
 pub struct BridgeRigState {
     pub mode: BridgeRigMode,
     pub selected_bone: Option<String>,
+    pub selected_effector: Option<String>,
     pub selected_fk_rotation: Option<BridgeEuler>,
     pub hand_open: f32,
     pub can_undo: bool,
@@ -84,6 +87,7 @@ pub struct BridgeIkTarget {
 pub struct BridgeRigPoseSnapshot {
     pub mode: BridgeRigMode,
     pub selected_bone: Option<String>,
+    pub selected_effector: Option<String>,
     pub fk: Vec<BridgeFkRotation>,
     pub ik: Vec<BridgeIkTarget>,
     pub hand_open: f32,
@@ -132,6 +136,7 @@ impl NativeRigSession {
         Ok(BridgeRigPoseSnapshot {
             mode: pose.mode,
             selected_bone: pose.selected_bone.clone(),
+            selected_effector: pose.selected_effector.clone(),
             fk: pose
                 .fk
                 .iter()
@@ -162,6 +167,12 @@ impl NativeRigSession {
 
     pub fn select_bone(&self, bone: Option<String>) -> Result<BridgeRigState, String> {
         self.replace_committed(|pose| pose.selected_bone = bone.filter(|name| !name.trim().is_empty()))
+    }
+
+    pub fn select_effector(&self, effector: Option<String>) -> Result<BridgeRigState, String> {
+        self.replace_committed(|pose| {
+            pose.selected_effector = effector.filter(|name| !name.trim().is_empty());
+        })
     }
 
     pub fn set_hand_open(&self, open: bool) -> Result<BridgeRigState, String> {
@@ -220,6 +231,7 @@ impl NativeRigSession {
 
         self.replace_transient(|pose| {
             pose.mode = BridgeRigMode::Ik;
+            pose.selected_effector = Some(effector.clone());
             pose.ik.insert(
                 effector,
                 RigIkTarget {
@@ -311,6 +323,7 @@ fn state_from_history(history: &BuilderHistory<RigPose>, gesture_active: bool) -
     BridgeRigState {
         mode: pose.mode,
         selected_bone: pose.selected_bone.clone(),
+        selected_effector: pose.selected_effector.clone(),
         selected_fk_rotation,
         hand_open: pose.hand_open,
         can_undo: history.can_undo(),
@@ -372,6 +385,7 @@ mod tests {
         let state = rig.reset().unwrap();
         assert_eq!(state.mode, BridgeRigMode::None);
         assert!(state.selected_bone.is_none());
+        assert!(state.selected_effector.is_none());
         assert!(state.selected_fk_rotation.is_none());
         assert!(state.hand_open > 0.5);
         assert!(!state.can_undo);
@@ -435,6 +449,17 @@ mod tests {
         assert_eq!(snapshot.ik[0].lower, "LeftLeg");
         assert_eq!(snapshot.ik[0].end, "LeftFoot");
         assert!((snapshot.ik[0].pole.z - 1.0).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn selected_ik_effector_is_part_of_authoritative_state() {
+        let rig = NativeRigSession::create();
+        let state = rig.select_effector(Some("LeftFoot".into())).unwrap();
+        assert_eq!(state.selected_effector.as_deref(), Some("LeftFoot"));
+        assert_eq!(
+            rig.pose_snapshot().unwrap().selected_effector.as_deref(),
+            Some("LeftFoot")
+        );
     }
 
     #[test]
