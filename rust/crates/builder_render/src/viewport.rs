@@ -290,6 +290,84 @@ impl ViewportRenderer {
         Ok(pixels)
     }
 
+    pub fn read_depth32f(&self) -> Result<Vec<f32>, String> {
+        let bytes_per_pixel = std::mem::size_of::<f32>();
+        let unpadded_bytes_per_row = self.width as usize * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+        let padded_bytes_per_row =
+            (unpadded_bytes_per_row + align - 1) / align * align;
+        let buffer_size = padded_bytes_per_row
+            .checked_mul(self.height as usize)
+            .ok_or_else(|| "Viewport depth readback size overflow".to_owned())?;
+
+        let buffer = self.context.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fresh Builder Depth Readback"),
+            size: buffer_size as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .context
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Fresh Builder Depth Readback Encoder"),
+            });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.target.depth_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::DepthOnly,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row as u32),
+                    rows_per_image: Some(self.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let submission = self.context.queue.submit([encoder.finish()]);
+        let slice = buffer.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+
+        self.context
+            .device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(submission),
+                timeout: Some(std::time::Duration::from_secs(2)),
+            })
+            .map_err(|error| format!("Depth readback poll failed: {error:?}"))?;
+
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| "Depth readback timed out".to_owned())?
+            .map_err(|error| format!("Depth buffer map failed: {error}"))?;
+
+        let mapped = slice.get_mapped_range();
+        let mut depth = Vec::with_capacity(self.width as usize * self.height as usize);
+        for row in mapped.chunks(padded_bytes_per_row).take(self.height as usize) {
+            for chunk in row[..unpadded_bytes_per_row].chunks_exact(bytes_per_pixel) {
+                depth.push(f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+            }
+        }
+        drop(mapped);
+        buffer.unmap();
+        Ok(depth)
+    }
+
     pub fn texture(&self) -> &wgpu::Texture {
         &self.target.texture
     }
@@ -330,7 +408,8 @@ fn create_target(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let depth_view =
