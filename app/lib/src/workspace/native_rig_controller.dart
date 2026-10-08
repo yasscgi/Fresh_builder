@@ -22,6 +22,7 @@ class NativeRigController extends ChangeNotifier {
   bool get canRedo => _state?.canRedo ?? false;
   bool get gestureActive => _state?.gestureActive ?? false;
   String? get selectedBone => _state?.selectedBone;
+  String? get selectedEffector => _state?.selectedEffector;
   BridgeEuler? get selectedFkRotation => _state?.selectedFkRotation;
   BridgeRigPoseSnapshot? get snapshot => _snapshot;
   String? get error => _error;
@@ -80,6 +81,18 @@ class NativeRigController extends ChangeNotifier {
     final session = await _requireSession();
     try {
       _state = await session.selectBone(bone: bone);
+      _snapshot = await session.poseSnapshot();
+      _error = null;
+      notifyListeners();
+    } catch (error) {
+      _setError(error);
+    }
+  }
+
+  Future<void> selectEffector(String? effector) async {
+    final session = await _requireSession();
+    try {
+      _state = await session.selectEffector(effector: effector);
       _snapshot = await session.poseSnapshot();
       _error = null;
       notifyListeners();
