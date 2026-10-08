@@ -533,6 +533,30 @@ class _BuilderPageState extends State<BuilderPage> {
     return 'asset:${choice.assetId}';
   }
 
+  String? get _selectedTransformSceneKey {
+    final choice = _selectedAsset;
+    if (choice == null || choice.asset.type == 'pose') return null;
+    final sceneKey = _nativeSceneKey(choice);
+    if (sceneKey == _baseCharacterSceneKey) return null;
+    if (!_nativeViewport.hasLoadedScene(sceneKey)) return null;
+    return sceneKey;
+  }
+
+  Future<void> _updateSelectedAssetTransform(
+    NativeSceneTransform transform,
+  ) async {
+    final sceneKey = _selectedTransformSceneKey;
+    if (sceneKey == null) return;
+    await _nativeViewport.setSceneTransform(
+      sceneKey: sceneKey,
+      transform: transform,
+    );
+    _workspace.setBusy(
+      false,
+      status: 'Asset transform updated',
+    );
+  }
+
   double _metersPerUnit(BuilderAssetChoice choice) {
     final metadata = choice.metadata;
     final raw = metadata['metersPerBlenderUnit'] ??
@@ -685,6 +709,18 @@ class _BuilderPageState extends State<BuilderPage> {
                   ),
                 ),
                 Positioned(
+                  left: desktop ? 78 : 60,
+                  top: desktop ? 54 : 38,
+                  child: _AssetTransformPanel(
+                    workspace: _workspace,
+                    viewport: _nativeViewport,
+                    sceneKey: _selectedTransformSceneKey,
+                    onChanged: (transform) =>
+                        unawaited(_updateSelectedAssetTransform(transform)),
+                    compact: !desktop,
+                  ),
+                ),
+                Positioned(
                   right: 10,
                   top: 8,
                   child: ListenableBuilder(
@@ -823,6 +859,18 @@ class _BuilderPageState extends State<BuilderPage> {
           child: BuilderToolRail(controller: _workspace, compact: true),
         ),
         Positioned(
+          left: 50,
+          top: 44,
+          child: _AssetTransformPanel(
+            workspace: _workspace,
+            viewport: _nativeViewport,
+            sceneKey: _selectedTransformSceneKey,
+            onChanged: (transform) =>
+                unawaited(_updateSelectedAssetTransform(transform)),
+            compact: true,
+          ),
+        ),
+        Positioned(
           right: 8,
           top: 8,
           child: ListenableBuilder(
@@ -894,6 +942,211 @@ class _BuilderPageState extends State<BuilderPage> {
             categories: _navigationCategories,
             onSelect: _selectCategory,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AssetTransformPanel extends StatelessWidget {
+  const _AssetTransformPanel({
+    required this.workspace,
+    required this.viewport,
+    required this.sceneKey,
+    required this.onChanged,
+    required this.compact,
+  });
+
+  final BuilderWorkspaceController workspace;
+  final NativeViewportController viewport;
+  final String? sceneKey;
+  final ValueChanged<NativeSceneTransform> onChanged;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([workspace, viewport]),
+      builder: (context, _) {
+        final key = sceneKey;
+        final tool = workspace.tool;
+        if (key == null || tool == BuilderTool.select) {
+          return const SizedBox.shrink();
+        }
+
+        final transform = viewport.sceneTransform(key);
+        final colors = Theme.of(context).colorScheme;
+        final width = compact ? 210.0 : 250.0;
+
+        return Container(
+          width: width,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: colors.surface.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Theme.of(context).dividerColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 18,
+              ),
+            ],
+          ),
+          child: switch (tool) {
+            BuilderTool.move => _TransformAxes(
+                title: 'Move asset',
+                values: [transform.tx, transform.ty, transform.tz],
+                min: -0.25,
+                max: 0.25,
+                formatter: (value) => '${(value * 1000).round()} mm',
+                onChanged: (axis, value) {
+                  onChanged(
+                    transform.copyWith(
+                      tx: axis == 0 ? value : transform.tx,
+                      ty: axis == 1 ? value : transform.ty,
+                      tz: axis == 2 ? value : transform.tz,
+                    ),
+                  );
+                },
+              ),
+            BuilderTool.rotate => _TransformAxes(
+                title: 'Rotate asset',
+                values: [transform.rx, transform.ry, transform.rz],
+                min: -math.pi,
+                max: math.pi,
+                formatter: (value) =>
+                    '${(value * 180 / math.pi).round()}°',
+                onChanged: (axis, value) {
+                  onChanged(
+                    transform.copyWith(
+                      rx: axis == 0 ? value : transform.rx,
+                      ry: axis == 1 ? value : transform.ry,
+                      rz: axis == 2 ? value : transform.rz,
+                    ),
+                  );
+                },
+              ),
+            BuilderTool.scale => _TransformScale(
+                value: transform.scale,
+                onChanged: (value) =>
+                    onChanged(transform.copyWith(scale: value)),
+              ),
+            _ => const SizedBox.shrink(),
+          },
+        );
+      },
+    );
+  }
+}
+
+class _TransformAxes extends StatelessWidget {
+  const _TransformAxes({
+    required this.title,
+    required this.values,
+    required this.min,
+    required this.max,
+    required this.formatter,
+    required this.onChanged,
+  });
+
+  final String title;
+  final List<double> values;
+  final double min;
+  final double max;
+  final String Function(double value) formatter;
+  final void Function(int axis, double value) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 6),
+        for (var axis = 0; axis < 3; axis++)
+          Row(
+            children: [
+              SizedBox(
+                width: 14,
+                child: Text(
+                  const ['X', 'Y', 'Z'][axis],
+                  style: const TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Slider(
+                  min: min,
+                  max: max,
+                  value: values[axis].clamp(min, max),
+                  onChanged: (value) => onChanged(axis, value),
+                ),
+              ),
+              SizedBox(
+                width: 54,
+                child: Text(
+                  formatter(values[axis]),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    fontSize: 7,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _TransformScale extends StatelessWidget {
+  const _TransformScale({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Scale asset',
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: Slider(
+                min: 0.25,
+                max: 3.0,
+                value: value.clamp(0.25, 3.0),
+                onChanged: onChanged,
+              ),
+            ),
+            SizedBox(
+              width: 46,
+              child: Text(
+                '${value.toStringAsFixed(2)}×',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
