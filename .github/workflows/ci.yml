@@ -297,3 +297,84 @@ jobs:
         shell: bash
         working-directory: app
         run: flutter build macos --debug
+
+
+  android-mobile:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source
+        shell: bash
+        run: |
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          git init .
+          git remote add origin https://github.com/yasscgi/Fresh_builder.git
+          git fetch --depth 1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Install Android/Linux prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y curl git unzip xz-utils zip clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libglu1-mesa
+
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" --version
+
+      - name: Install flutter_rust_bridge codegen
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+
+      - name: Bootstrap and build Android
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          bash scripts/bootstrap_android.sh
+
+  ios-mobile:
+    runs-on: macos-15
+    steps:
+      - name: Checkout source
+        shell: bash
+        run: |
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          git init .
+          git remote add origin https://github.com/yasscgi/Fresh_builder.git
+          git fetch --depth 1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Install stable Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" --version
+
+      - name: Install flutter_rust_bridge codegen
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+
+      - name: Bootstrap and build iOS
+        shell: bash
+        run: |
+          export PATH="$HOME/flutter/bin:$HOME/.cargo/bin:$PATH"
+          bash scripts/bootstrap_ios.sh
