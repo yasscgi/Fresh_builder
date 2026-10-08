@@ -18,6 +18,7 @@ import 'src/cloud/supabase_bootstrap.dart';
 import 'src/rust/api/rig.dart';
 import 'src/rust/frb_generated.dart';
 import 'src/workspace/asset_transform_ui.dart';
+import 'src/workspace/builder_design_persistence.dart';
 import 'src/workspace/builder_workspace.dart';
 import 'src/workspace/current_builder_ui.dart';
 import 'src/workspace/native_rig_controller.dart';
@@ -110,6 +111,7 @@ class _BuilderPageState extends State<BuilderPage> {
   bool _assetLoading = false;
   String? _cloudError;
   String? _assetError;
+  static const _persistence = BuilderDesignPersistence();
   late final BuilderWorkspaceController _workspace;
   late final NativeRigController _nativeRig;
   late final NativeViewportController _nativeViewport;
@@ -178,6 +180,56 @@ class _BuilderPageState extends State<BuilderPage> {
     }
   }
 
+
+  Future<void> _saveCurrentDesign() async {
+    final product = _selectedProduct;
+    if (product == null) {
+      _workspace.setBusy(false, status: 'Select a product before saving');
+      return;
+    }
+
+    _workspace.setBusy(true, status: 'Saving Builder design…');
+    try {
+      await _persistence.saveSnapshot(
+        productId: product.id,
+        productName: product.name,
+        sceneSelections: _sceneSelections,
+        viewport: _nativeViewport,
+        rig: _nativeRig,
+      );
+      if (!mounted) return;
+      _workspace.setBusy(
+        false,
+        status:
+            'Design v5 saved · ${_sceneSelections.length} scene selections',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Design save failed');
+    }
+  }
+
+  Future<void> _exportCurrentStl() async {
+    final productName = _selectedProduct?.name ?? 'fresh-builder';
+    _workspace.setBusy(true, status: 'Baking current pose to STL…');
+    try {
+      final result = await _persistence.exportCurrentStl(
+        productName: productName,
+        viewport: _nativeViewport,
+      );
+      if (!mounted) return;
+      _workspace.setBusy(
+        false,
+        status:
+            'STL saved · ${result.sceneCount} scenes · '
+            '${result.meshCount} meshes · '
+            '${result.triangleCount} triangles',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'STL export failed');
+    }
+  }
 
   Future<void> _setRigMode(BridgeRigMode mode) async {
     await _nativeRig.setMode(mode);
@@ -889,6 +941,8 @@ class _BuilderPageState extends State<BuilderPage> {
               boneConstraints: resolveRigBoneConstraints(data: _cloudData),
               onOpenHand: () => unawaited(_setHandOpen(true)),
               onCloseHand: () => unawaited(_setHandOpen(false)),
+              onSaveDesign: () => unawaited(_saveCurrentDesign()),
+              onExportStl: () => unawaited(_exportCurrentStl()),
             ),
           ),
       ],
@@ -1340,6 +1394,8 @@ class _RigPanel extends StatelessWidget {
     required this.boneConstraints,
     required this.onOpenHand,
     required this.onCloseHand,
+    required this.onSaveDesign,
+    required this.onExportStl,
   });
 
   final NativeRigController rigController;
@@ -1357,6 +1413,8 @@ class _RigPanel extends StatelessWidget {
   final Map<String, RigBoneConstraintBinding> boneConstraints;
   final VoidCallback onOpenHand;
   final VoidCallback onCloseHand;
+  final VoidCallback onSaveDesign;
+  final VoidCallback onExportStl;
 
   @override
   Widget build(BuildContext context) {
@@ -1569,17 +1627,17 @@ class _RigPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.face_retouching_natural_rounded, size: 16),
-                  label: const Text('Face'),
+                  onPressed: onSaveDesign,
+                  icon: const Icon(Icons.save_rounded, size: 16),
+                  label: const Text('Save Design'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {},
+                  onPressed: onExportStl,
                   icon: const Icon(Icons.print_rounded, size: 16),
-                  label: const Text('Print / Export'),
+                  label: const Text('Export STL'),
                 ),
               ),
             ],
