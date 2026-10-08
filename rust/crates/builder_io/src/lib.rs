@@ -4,6 +4,7 @@ mod fbx;
 mod gltf;
 mod scene;
 mod stl;
+mod stl_decode;
 mod three_mf;
 mod validation;
 
@@ -17,3 +18,5 @@ pub use stl::{encode_binary_stl, write_binary_stl};
 
 pub use three_mf::{encode_3mf, write_3mf};
 pub use validation::{validate_print_scene, PrintValidationReport};
+
+pub use stl_decode::decode_stl_scene;
