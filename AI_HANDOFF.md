@@ -330,3 +330,48 @@ Still pending for asset transforms:
 - direct viewport transform gizmos instead of slider-only controls,
 - persistence of asset transforms into BuilderDesign/cloud saves,
 - transform-aware export baking for STL/3MF.
+
+
+## Continuation update — 2026-10-08 (transform history, direct gizmos, Design v5, posed STL export)
+
+Completed on active PR #17:
+- Asset transforms now have per-scene transient history with commit-on-release, cancel, undo and redo independent from rig history.
+- Scene-transform writes are serialized before history commit, preventing the final drag update from racing the commit.
+- Added direct viewport asset gizmo:
+  - Move uses Rust camera-plane pixel -> world delta conversion.
+  - Rotate uses direct viewport drag.
+  - Scale uses direct viewport drag.
+  - Full move queues are flushed before commit.
+- Builder workspace has dedicated asset-transform gesture lock/status separate from pose edits.
+- BuilderDesign core upgraded to version 5 with AssetTransformState persistence and tests.
+- Native bridge now advertises design_version = 5.
+- Added immutable scene transform snapshots for persistence.
+- Added BuilderDesignPersistence service that writes .freshbuilder.json with:
+  - product id,
+  - loaded scene selections,
+  - per-scene transforms,
+  - FK pose,
+  - IK commands,
+  - selected bone/effector,
+  - hand-open state.
+- Refactored asset transform UI/gizmo from main.dart into asset_transform_ui.dart to keep main.dart small and prevent large-file Contents API duplication.
+- Added export geometry baking:
+  - current skeleton palette is applied CPU-side at export time,
+  - current model transform is applied after skinning,
+  - exported geometry becomes static/unskinned.
+- Added builder_io binary STL encoder with triangle validation and tests.
+- NativeViewportSession can merge all loaded scenes and export the current posed/transformed Builder viewport to one STL.
+- Flutter persistence/export service saves STL to the application Documents directory.
+- Desktop Rig panel Save Design and Export STL actions are now wired to the new services.
+
+Important implementation note:
+- main.dart briefly hit a GitHub Contents API large-file duplication issue during development. The duplicated version was discarded. Asset transform UI was extracted into a separate file and main.dart is back to a single clean copy (~107 KB).
+- Supabase save-back is intentionally not invented yet: the native repo currently loads Builder config/assets but does not expose a confirmed saved-design table/schema. Local Design v5 persistence is complete and ready to map to the real Supabase schema once confirmed.
+
+Still pending:
+- load/restore a .freshbuilder.json Design v5 into scenes/pose,
+- mobile-visible Save/Export affordance,
+- 3MF writer,
+- FBX decoder strategy,
+- Android/iOS native texture backend,
+- executable CI validation on a functioning GitHub runner.
