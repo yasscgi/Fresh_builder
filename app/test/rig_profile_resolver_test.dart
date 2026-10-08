@@ -81,6 +81,46 @@ void main() {
     expect(chains.single.end, 'mixamorig:LeftFoot');
   });
 
+  test('resolves hinge bones to a single dominant FK axis', () {
+    final data = BuilderCloudData(
+      config: BuilderCloudConfig(
+        productId: 'p3',
+        mode: 'character',
+        config: {
+          'rigProfile': {
+            'format': 'freshstl_mixamo_rig_v3',
+            'bones': [
+              {
+                'semantic': 'LeftLowerLeg',
+                'source_name': 'mixamorig:LeftLeg',
+                'primary_axis': [0, 1, 0],
+                'hinge_axis': [1, 0.1, 0],
+              },
+              {
+                'semantic': 'Spine',
+                'source_name': 'mixamorig:Spine',
+                'primary_axis': [0, 1, 0],
+              },
+            ],
+          },
+        },
+      ),
+      categories: const [],
+      assets: const [],
+      articulatedChains: const [],
+      jointStandards: const [],
+      surfaceZones: const [],
+    );
+
+    final constraints = resolveRigBoneConstraints(data: data);
+    expect(constraints['mixamorig:LeftLeg']!.allowedAxes, {'x'});
+    expect(constraints['mixamorig:LeftLeg']!.hingeAxis, isNotNull);
+    expect(
+      constraints['mixamorig:Spine']!.allowedAxes,
+      {'x', 'y', 'z'},
+    );
+  });
+
   test('infers four standard Mixamo chains when metadata is absent', () {
     const joints = [
       'mixamorig:LeftArm',
