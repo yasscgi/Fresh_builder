@@ -627,6 +627,10 @@ class _BuilderPageState extends State<BuilderPage> {
                     nativeController: _nativeViewport,
                     rigController: _nativeRig,
                     rigSceneKey: _baseCharacterSceneKey,
+                    ikChains: resolveIkChains(
+                      data: _cloudData,
+                      jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
+                    ),
                     productName: _selectedProduct?.name,
                     assetCount: _cloudData?.assets.length,
                     cloudLoading: _cloudLoading,
@@ -759,6 +763,10 @@ class _BuilderPageState extends State<BuilderPage> {
             nativeController: _nativeViewport,
             rigController: _nativeRig,
             rigSceneKey: _baseCharacterSceneKey,
+            ikChains: resolveIkChains(
+              data: _cloudData,
+              jointNames: _nativeViewport.sceneJointNames(_baseCharacterSceneKey),
+            ),
             productName: _selectedProduct?.name,
             assetCount: _cloudData?.assets.length,
             cloudLoading: _cloudLoading,
@@ -1426,6 +1434,23 @@ class _IkEditorState extends State<_IkEditor> {
   @override
   void didUpdateWidget(covariant _IkEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final authoritative = widget.rigController.selectedEffector;
+    if (authoritative != null && authoritative != _selected?.effector) {
+      IkChainBinding? match;
+      for (final chain in widget.chains) {
+        if (chain.effector == authoritative) {
+          match = chain;
+          break;
+        }
+      }
+      if (match != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_selectChain(match));
+        });
+        return;
+      }
+    }
+
     final effector = _selected?.effector;
     if (effector == null) return;
 
@@ -1636,6 +1661,9 @@ class _IkEditorState extends State<_IkEditor> {
                       match = chain;
                       break;
                     }
+                  }
+                  if (match != null) {
+                    unawaited(widget.rigController.selectEffector(match.effector));
                   }
                   unawaited(_selectChain(match));
                 },
@@ -1978,6 +2006,7 @@ class BuilderViewport extends StatelessWidget {
     required this.nativeController,
     required this.rigController,
     required this.rigSceneKey,
+    required this.ikChains,
     this.productName,
     this.assetCount,
     this.cloudLoading = false,
@@ -1992,6 +2021,7 @@ class BuilderViewport extends StatelessWidget {
   final NativeViewportController nativeController;
   final NativeRigController rigController;
   final String rigSceneKey;
+  final List<IkChainBinding> ikChains;
   final String? productName;
   final int? assetCount;
   final bool cloudLoading;
@@ -2043,6 +2073,13 @@ class BuilderViewport extends StatelessWidget {
                     rigController: rigController,
                     sceneKey: rigSceneKey,
                   ),
+                if (rigMode == BridgeRigMode.ik)
+                  _RigIkOverlay(
+                    nativeController: nativeController,
+                    rigController: rigController,
+                    sceneKey: rigSceneKey,
+                    chains: ikChains,
+                  ),
                 if (nativeController.textureError != null)
                   Positioned(
                     left: 12,
@@ -2075,6 +2112,123 @@ class BuilderViewport extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _RigIkOverlay extends StatelessWidget {
+  const _RigIkOverlay({
+    required this.nativeController,
+    required this.rigController,
+    required this.sceneKey,
+    required this.chains,
+  });
+
+  final NativeViewportController nativeController;
+  final NativeRigController rigController;
+  final String sceneKey;
+  final List<IkChainBinding> chains;
+
+  @override
+  Widget build(BuildContext context) {
+    if (chains.isEmpty ||
+        nativeController.physicalWidth <= 0 ||
+        nativeController.physicalHeight <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final byBone = <String, NativeJointScreenPoint>{
+      for (final point in nativeController.sceneJointScreenPoints(sceneKey))
+        if (point.visible) point.bone: point,
+    };
+    final colors = Theme.of(context).colorScheme;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaleX =
+            constraints.maxWidth / nativeController.physicalWidth;
+        final scaleY =
+            constraints.maxHeight / nativeController.physicalHeight;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            for (final chain in chains)
+              if (byBone[chain.end] case final point?)
+                _IkEffectorHandle(
+                  label: chain.effector,
+                  x: point.x * scaleX,
+                  y: point.y * scaleY,
+                  selected:
+                      rigController.selectedEffector == chain.effector,
+                  accent: colors.primary,
+                  onTap: () => unawaited(
+                    rigController.selectEffector(chain.effector),
+                  ),
+                ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _IkEffectorHandle extends StatelessWidget {
+  const _IkEffectorHandle({
+    required this.label,
+    required this.x,
+    required this.y,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final double x;
+  final double y;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = selected ? 26.0 : 21.0;
+    return Positioned(
+      left: x - size / 2,
+      top: y - size / 2,
+      width: size,
+      height: size,
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: selected
+                  ? accent
+                  : accent.withValues(alpha: 0.22),
+              border: Border.all(
+                color: selected ? Colors.white : accent,
+                width: selected ? 2.4 : 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withValues(alpha: selected ? 0.42 : 0.2),
+                  blurRadius: selected ? 14 : 8,
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.open_with_rounded,
+              size: selected ? 14 : 12,
+              color: selected ? Colors.white : accent,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
