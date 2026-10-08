@@ -18,6 +18,8 @@ class NativeViewportController extends ChangeNotifier {
   final Map<String, ({String path, double metersPerUnit})> _pendingScenes = {};
   final Set<String> _loadedSceneKeys = <String>{};
   final Map<String, List<String>> _jointNamesByScene = <String, List<String>>{};
+  final Map<String, List<NativeJointScreenPoint>> _jointScreenPointsByScene =
+      <String, List<NativeJointScreenPoint>>{};
   bool _initializing = false;
   bool _orbitInFlight = false;
   bool _zoomInFlight = false;
@@ -39,6 +41,10 @@ class NativeViewportController extends ChangeNotifier {
   bool hasLoadedScene(String sceneKey) => _loadedSceneKeys.contains(sceneKey);
   List<String> sceneJointNames(String sceneKey) =>
       List<String>.unmodifiable(_jointNamesByScene[sceneKey] ?? const <String>[]);
+  List<NativeJointScreenPoint> sceneJointScreenPoints(String sceneKey) =>
+      List<NativeJointScreenPoint>.unmodifiable(
+        _jointScreenPointsByScene[sceneKey] ?? const <NativeJointScreenPoint>[],
+      );
 
   Future<void> ensureInitialized({
     required double logicalWidth,
@@ -135,6 +141,9 @@ class NativeViewportController extends ChangeNotifier {
         );
       }
       await _markTextureFrame();
+      for (final sceneKey in _loadedSceneKeys) {
+        await _refreshJointScreenPoints(sceneKey);
+      }
       notifyListeners();
     } catch (error) {
       _error = error.toString();
@@ -225,9 +234,12 @@ class NativeViewportController extends ChangeNotifier {
         _loadedSceneKeys.add(sceneKey);
         _jointNamesByScene[sceneKey] =
             await session.sceneJointNames(sceneKey: sceneKey);
+        await _refreshJointScreenPoints(sceneKey);
       } else {
         _loadedSceneKeys.remove(sceneKey);
         _jointNamesByScene.remove(sceneKey);
+    _jointScreenPointsByScene.remove(sceneKey);
+        _jointScreenPointsByScene.remove(sceneKey);
       }
       _sceneError = null;
       await _markTextureFrame();
@@ -257,6 +269,32 @@ class NativeViewportController extends ChangeNotifier {
     }
   }
 
+  Future<void> _refreshJointScreenPoints(String sceneKey) async {
+    final session = _session;
+    if (session == null || !_loadedSceneKeys.contains(sceneKey)) return;
+    try {
+      final values = await session.sceneJointScreenPositions(sceneKey: sceneKey);
+      _jointScreenPointsByScene[sceneKey] = values
+          .map(
+            (value) => NativeJointScreenPoint(
+              bone: value.bone,
+              x: value.x.toDouble(),
+              y: value.y.toDouble(),
+              depth: value.depth.toDouble(),
+              visible: value.visible,
+            ),
+          )
+          .toList(growable: false);
+    } catch (error) {
+      _sceneError = error.toString();
+    }
+  }
+
+  Future<void> refreshJointScreenPoints(String sceneKey) async {
+    await _refreshJointScreenPoints(sceneKey);
+    notifyListeners();
+  }
+
   Future<void> removeScene(String sceneKey) async {
     _pendingScenes.remove(sceneKey);
     _loadedSceneKeys.remove(sceneKey);
@@ -277,6 +315,7 @@ class NativeViewportController extends ChangeNotifier {
     _pendingScenes.clear();
     _loadedSceneKeys.clear();
     _jointNamesByScene.clear();
+    _jointScreenPointsByScene.clear();
     _sceneStatus = null;
     _sceneError = null;
     final session = _session;
@@ -310,6 +349,7 @@ class NativeViewportController extends ChangeNotifier {
         z: z,
       );
       await _markTextureFrame();
+      await _refreshJointScreenPoints(sceneKey);
       _sceneError = null;
     } catch (error) {
       _sceneError = error.toString();
@@ -343,6 +383,7 @@ class NativeViewportController extends ChangeNotifier {
         pole: BridgeVec3(x: poleX, y: poleY, z: poleZ),
       );
       await _markTextureFrame();
+      await _refreshJointScreenPoints(sceneKey);
       _sceneError = null;
       notifyListeners();
       return result;
@@ -360,6 +401,7 @@ class NativeViewportController extends ChangeNotifier {
     try {
       await session.resetScenePose(sceneKey: sceneKey);
       await _markTextureFrame();
+      await _refreshJointScreenPoints(sceneKey);
       _sceneError = null;
     } catch (error) {
       _sceneError = error.toString();
@@ -385,6 +427,9 @@ class NativeViewportController extends ChangeNotifier {
     try {
       _camera = await session.setViewPreset(preset: nativePreset);
       await _markTextureFrame();
+      for (final sceneKey in _loadedSceneKeys) {
+        await _refreshJointScreenPoints(sceneKey);
+      }
       notifyListeners();
     } catch (error) {
       _error = error.toString();
@@ -427,4 +472,21 @@ class NativeViewportController extends ChangeNotifier {
     _session = null;
     super.dispose();
   }
+}
+
+
+class NativeJointScreenPoint {
+  const NativeJointScreenPoint({
+    required this.bone,
+    required this.x,
+    required this.y,
+    required this.depth,
+    required this.visible,
+  });
+
+  final String bone;
+  final double x;
+  final double y;
+  final double depth;
+  final bool visible;
 }
