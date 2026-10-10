@@ -354,6 +354,48 @@ class NativeViewportController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<BridgeSafeRepairReport?> previewSafeRepair() async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final result = await session.previewSafeRepair();
+      _sceneError = null;
+      return result;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<BridgeExportStatus?> exportRepairedStl(String path) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final result = await session.exportRepairedStl(path: path);
+      _sceneError = null;
+      return result;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<BridgeExportStatus?> exportRepaired3mf(String path) async {
+    final session = _session;
+    if (session == null || _error != null) return null;
+    try {
+      final result = await session.exportRepaired3mf(path: path);
+      _sceneError = null;
+      return result;
+    } catch (error) {
+      _sceneError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<BridgePrintValidation?> validateCurrentPrint() async {
     final session = _session;
     if (session == null || _error != null) return null;
