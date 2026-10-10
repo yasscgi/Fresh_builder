@@ -193,6 +193,91 @@ final class BuilderDesignPersistence {
     return path;
   }
 
+  Future<BuilderSafeRepairResult> previewSafeRepair({
+    required NativeViewportController viewport,
+  }) async {
+    final report = await viewport.previewSafeRepair();
+    if (report == null) {
+      throw StateError('Native safe repair is unavailable.');
+    }
+    return BuilderSafeRepairResult(
+      removedInvalidTriangles: report.removedInvalidTriangles,
+      removedDegenerateTriangles: report.removedDegenerateTriangles,
+      keptTriangles: report.keptTriangles,
+      remainingBoundaryEdges: report.remainingBoundaryEdges,
+      remainingNonManifoldEdges: report.remainingNonManifoldEdges,
+      remainingWindingEdges: report.remainingWindingEdges,
+      remainingShells: report.remainingShells,
+      watertight: report.watertight,
+    );
+  }
+
+  Future<BuilderExportResult> exportRepairedStl({
+    required String productName,
+    required NativeViewportController viewport,
+  }) async {
+    final preview = await previewSafeRepair(viewport: viewport);
+    if (preview.keptTriangles <= 0) {
+      throw StateError('Safe repair produced no printable triangles.');
+    }
+
+    final directory = await getApplicationDocumentsDirectory();
+    final safeName = _safeName(productName);
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-');
+    final fileName =
+        '${safeName.isEmpty ? 'fresh-builder' : safeName}-repaired-$stamp.stl';
+    final path = '${directory.path}${Platform.pathSeparator}$fileName';
+
+    final status = await viewport.exportRepairedStl(path);
+    if (status == null) {
+      throw StateError('Native repaired STL export is unavailable.');
+    }
+    final validation = await validateCurrentPrint(viewport: viewport);
+    return BuilderExportResult(
+      path: status.path,
+      sceneCount: status.sceneCount,
+      meshCount: status.meshCount,
+      triangleCount: status.triangleCount,
+      validation: validation,
+    );
+  }
+
+  Future<BuilderExportResult> exportRepaired3mf({
+    required String productName,
+    required NativeViewportController viewport,
+  }) async {
+    final preview = await previewSafeRepair(viewport: viewport);
+    if (preview.keptTriangles <= 0) {
+      throw StateError('Safe repair produced no printable triangles.');
+    }
+
+    final directory = await getApplicationDocumentsDirectory();
+    final safeName = _safeName(productName);
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-');
+    final fileName =
+        '${safeName.isEmpty ? 'fresh-builder' : safeName}-repaired-$stamp.3mf';
+    final path = '${directory.path}${Platform.pathSeparator}$fileName';
+
+    final status = await viewport.exportRepaired3mf(path);
+    if (status == null) {
+      throw StateError('Native repaired 3MF export is unavailable.');
+    }
+    final validation = await validateCurrentPrint(viewport: viewport);
+    return BuilderExportResult(
+      path: status.path,
+      sceneCount: status.sceneCount,
+      meshCount: status.meshCount,
+      triangleCount: status.triangleCount,
+      validation: validation,
+    );
+  }
+
   Future<BuilderPrintValidationResult> validateCurrentPrint({
     required NativeViewportController viewport,
   }) async {
@@ -441,4 +526,27 @@ final class BuilderExportValidationException implements Exception {
 
   @override
   String toString() => message;
+}
+
+
+final class BuilderSafeRepairResult {
+  const BuilderSafeRepairResult({
+    required this.removedInvalidTriangles,
+    required this.removedDegenerateTriangles,
+    required this.keptTriangles,
+    required this.remainingBoundaryEdges,
+    required this.remainingNonManifoldEdges,
+    required this.remainingWindingEdges,
+    required this.remainingShells,
+    required this.watertight,
+  });
+
+  final int removedInvalidTriangles;
+  final int removedDegenerateTriangles;
+  final int keptTriangles;
+  final int remainingBoundaryEdges;
+  final int remainingNonManifoldEdges;
+  final int remainingWindingEdges;
+  final int remainingShells;
+  final bool watertight;
 }
