@@ -413,6 +413,127 @@ class _BuilderPageState extends State<BuilderPage> {
     }
   }
 
+  Future<void> _repairAndExport() async {
+    final productName = _selectedProduct?.name ?? 'fresh-builder';
+    _workspace.setBusy(true, status: 'Previewing safe print repair…');
+    try {
+      final preview = await _persistence.previewSafeRepair(
+        viewport: _nativeViewport,
+      );
+      if (!mounted) return;
+
+      _workspace.setBusy(false, status: null);
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          final colors = Theme.of(dialogContext).colorScheme;
+          final topology = preview.watertight
+              ? 'Watertight after safe repair'
+              : 'Topology warnings remain after safe repair';
+          return AlertDialog(
+            title: const Text('Safe Repair & Export'),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 430),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    topology,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: preview.watertight
+                          ? colors.primary
+                          : colors.error,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Removed ${preview.removedInvalidTriangles} invalid and '
+                    '${preview.removedDegenerateTriangles} degenerate triangles. '
+                    '${preview.keptTriangles} triangles remain.',
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Remaining: ${preview.remainingShells} shells · '
+                    '${preview.remainingBoundaryEdges} boundary · '
+                    '${preview.remainingNonManifoldEdges} non-manifold · '
+                    '${preview.remainingWindingEdges} winding.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Safe Repair does not boolean-union shells or change the '
+                    'Builder scene. It only cleans the baked export copy.',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              OutlinedButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop('stl'),
+                child: const Text('Repair → STL'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop('3mf'),
+                child: const Text('Repair → 3MF'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (!mounted || choice == null) return;
+      _workspace.setBusy(
+        true,
+        status: choice == 'stl'
+            ? 'Repairing baked geometry → STL…'
+            : 'Repairing baked geometry → 3MF…',
+      );
+
+      final result = choice == 'stl'
+          ? await _persistence.exportRepairedStl(
+              productName: productName,
+              viewport: _nativeViewport,
+            )
+          : await _persistence.exportRepaired3mf(
+              productName: productName,
+              viewport: _nativeViewport,
+            );
+
+      if (!mounted) return;
+      final repair = result.repair;
+      final quality = repair.watertight
+          ? 'Watertight'
+          : 'Warnings remain: ${repair.remainingShells} shells, '
+              '${repair.remainingBoundaryEdges} boundary, '
+              '${repair.remainingNonManifoldEdges} non-manifold, '
+              '${repair.remainingWindingEdges} winding';
+      _workspace.setBusy(
+        false,
+        status:
+            'Repaired ${choice.toUpperCase()} saved · $quality · '
+            '${result.triangleCount} triangles',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _workspace.setBusy(false, status: 'Safe repair/export failed');
+    }
+  }
+
   Future<void> _exportCurrent3mf() async {
     final productName = _selectedProduct?.name ?? 'fresh-builder';
     _workspace.setBusy(true, status: 'Baking current pose to 3MF…');
@@ -1164,6 +1285,7 @@ class _BuilderPageState extends State<BuilderPage> {
               onValidatePrint: () => unawaited(_validateCurrentPrint()),
               onExportStl: () => unawaited(_exportCurrentStl()),
               onExport3mf: () => unawaited(_exportCurrent3mf()),
+              onRepairExport: () => unawaited(_repairAndExport()),
             ),
           ),
       ],
@@ -1300,6 +1422,7 @@ class _BuilderPageState extends State<BuilderPage> {
             onValidate: () => unawaited(_validateCurrentPrint()),
             onExportStl: () => unawaited(_exportCurrentStl()),
             onExport3mf: () => unawaited(_exportCurrent3mf()),
+            onRepairExport: () => unawaited(_repairAndExport()),
           ),
         ),
         if (_cloudData != null)
@@ -1632,6 +1755,7 @@ class _RigPanel extends StatelessWidget {
     required this.onValidatePrint,
     required this.onExportStl,
     required this.onExport3mf,
+    required this.onRepairExport,
   });
 
   final NativeRigController rigController;
@@ -1654,6 +1778,7 @@ class _RigPanel extends StatelessWidget {
   final VoidCallback onValidatePrint;
   final VoidCallback onExportStl;
   final VoidCallback onExport3mf;
+  final VoidCallback onRepairExport;
 
   @override
   Widget build(BuildContext context) {
@@ -1868,6 +1993,7 @@ class _RigPanel extends StatelessWidget {
             onValidate: onValidatePrint,
             onExportStl: onExportStl,
             onExport3mf: onExport3mf,
+            onRepairExport: onRepairExport,
           ),
         ],
       ),
