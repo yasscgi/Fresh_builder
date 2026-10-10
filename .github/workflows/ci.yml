@@ -227,9 +227,9 @@ jobs:
         shell: bash
         working-directory: app
         run: |
-          if (-not (Test-Path "hook") -and -not (Test-Path "rust_builder")) {
+          if [ ! -d hook ] && [ ! -d rust_builder ]; then
             flutter_rust_bridge_codegen integrate --integration-backend native-assets
-          }
+          fi
           flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
@@ -293,9 +293,9 @@ jobs:
         shell: bash
         working-directory: app
         run: |
-          if (-not (Test-Path "hook") -and -not (Test-Path "rust_builder")) {
+          if [ ! -d hook ] && [ ! -d rust_builder ]; then
             flutter_rust_bridge_codegen integrate --integration-backend native-assets
-          }
+          fi
           flutter_rust_bridge_codegen generate
 
       - name: Analyze viewport texture package
