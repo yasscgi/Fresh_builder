@@ -1,7 +1,8 @@
 use builder_core::{solve_two_bone_ik, TwoBoneIkInput, Vec3};
 use builder_io::{
-    decode_fbx_scene, decode_gltf_scene, decode_stl_scene, detect_asset_format, inspect_scene_file, validate_print_scene,
-    write_3mf, write_binary_stl, AssetFormat, ImportReadiness,
+    decode_fbx_scene, decode_gltf_scene, decode_stl_scene, detect_asset_format, inspect_scene_file,
+    safe_repair_scene, validate_print_scene, write_3mf, write_binary_stl, AssetFormat,
+    ImportReadiness,
 };
 use std::{collections::BTreeMap, sync::Mutex};
 
@@ -172,6 +173,18 @@ pub struct BridgePrintValidation {
     pub size_x_mm: f32,
     pub size_y_mm: f32,
     pub size_z_mm: f32,
+    pub watertight: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct BridgeSafeRepairReport {
+    pub removed_invalid_triangles: u32,
+    pub removed_degenerate_triangles: u32,
+    pub kept_triangles: u32,
+    pub remaining_boundary_edges: u32,
+    pub remaining_non_manifold_edges: u32,
+    pub remaining_winding_edges: u32,
+    pub remaining_shells: u32,
     pub watertight: bool,
 }
 
@@ -715,6 +728,101 @@ impl NativeViewportSession {
             return Err("Current Builder viewport has no exportable geometry".to_owned());
         }
         Ok((merged, scene_count))
+    }
+
+    pub fn preview_safe_repair(&self) -> Result<BridgeSafeRepairReport, String> {
+        let (merged, _) = self.baked_merged_scene()?;
+        let (repaired, repair) = safe_repair_scene(&merged);
+        let validation = validate_print_scene(&repaired);
+
+        Ok(BridgeSafeRepairReport {
+            removed_invalid_triangles: repair
+                .removed_invalid_triangles
+                .min(u32::MAX as u64) as u32,
+            removed_degenerate_triangles: repair
+                .removed_degenerate_triangles
+                .min(u32::MAX as u64) as u32,
+            kept_triangles: repair.kept_triangles.min(u32::MAX as u64) as u32,
+            remaining_boundary_edges: validation
+                .boundary_edges
+                .min(u32::MAX as u64) as u32,
+            remaining_non_manifold_edges: validation
+                .non_manifold_edges
+                .min(u32::MAX as u64) as u32,
+            remaining_winding_edges: validation
+                .inconsistent_winding_edges
+                .min(u32::MAX as u64) as u32,
+            remaining_shells: validation.connected_components,
+            watertight: validation.watertight(),
+        })
+    }
+
+    pub fn export_repaired_stl(
+        &self,
+        path: String,
+    ) -> Result<BridgeExportStatus, String> {
+        if path.trim().is_empty() {
+            return Err("Export path must not be empty".to_owned());
+        }
+        let (merged, scene_count) = self.baked_merged_scene()?;
+        let (repaired, _) = safe_repair_scene(&merged);
+        if repaired.is_empty() {
+            return Err("Safe repair removed all printable geometry".to_owned());
+        }
+        let validation = validate_print_scene(&repaired);
+        if validation.invalid_indices > 0 {
+            return Err("Safe repair could not resolve invalid indices".to_owned());
+        }
+
+        let triangle_count = repaired
+            .meshes
+            .iter()
+            .map(|mesh| (mesh.indices.len() / 3) as u64)
+            .sum::<u64>()
+            .min(u32::MAX as u64) as u32;
+        let mesh_count = repaired.meshes.len() as u32;
+
+        write_binary_stl(&repaired, &path)?;
+        Ok(BridgeExportStatus {
+            path,
+            scene_count,
+            mesh_count,
+            triangle_count,
+        })
+    }
+
+    pub fn export_repaired_3mf(
+        &self,
+        path: String,
+    ) -> Result<BridgeExportStatus, String> {
+        if path.trim().is_empty() {
+            return Err("Export path must not be empty".to_owned());
+        }
+        let (merged, scene_count) = self.baked_merged_scene()?;
+        let (repaired, _) = safe_repair_scene(&merged);
+        if repaired.is_empty() {
+            return Err("Safe repair removed all printable geometry".to_owned());
+        }
+        let validation = validate_print_scene(&repaired);
+        if validation.invalid_indices > 0 {
+            return Err("Safe repair could not resolve invalid indices".to_owned());
+        }
+
+        let triangle_count = repaired
+            .meshes
+            .iter()
+            .map(|mesh| (mesh.indices.len() / 3) as u64)
+            .sum::<u64>()
+            .min(u32::MAX as u64) as u32;
+        let mesh_count = repaired.meshes.len() as u32;
+
+        write_3mf(&repaired, &path)?;
+        Ok(BridgeExportStatus {
+            path,
+            scene_count,
+            mesh_count,
+            triangle_count,
+        })
     }
 
     pub fn validate_current_print(&self) -> Result<BridgePrintValidation, String> {
