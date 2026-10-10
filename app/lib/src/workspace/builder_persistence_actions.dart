@@ -8,6 +8,7 @@ class BuilderPersistenceActions extends StatelessWidget {
     required this.onValidate,
     required this.onExportStl,
     required this.onExport3mf,
+    required this.onRepairExport,
     this.compact = false,
   });
 
@@ -16,6 +17,7 @@ class BuilderPersistenceActions extends StatelessWidget {
   final VoidCallback onValidate;
   final VoidCallback onExportStl;
   final VoidCallback onExport3mf;
+  final VoidCallback onRepairExport;
   final bool compact;
 
   @override
@@ -26,6 +28,7 @@ class BuilderPersistenceActions extends StatelessWidget {
       (icon: Icons.fact_check_outlined, tooltip: 'Validate Print', action: onValidate),
       (icon: Icons.print_rounded, tooltip: 'Export STL', action: onExportStl),
       (icon: Icons.inventory_2_outlined, tooltip: 'Export 3MF', action: onExport3mf),
+      (icon: Icons.build_circle_outlined, tooltip: 'Repair & Export', action: onRepairExport),
     ];
 
     if (compact) {
