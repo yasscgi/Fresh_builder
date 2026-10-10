@@ -266,3 +266,47 @@ Highest-risk FBX API points to verify locally:
 - `mesh.vertex_indices`;
 - `node.node_to_parent` / `node.node_to_world`;
 - `matrix_for_normals`, `transform_position`, `transform_direction`.
+
+
+## Completion pass — 2026-10-10
+
+Completed after the previous post-merge hardening:
+- Safe printable repair engine added in builder_io.
+  - removes triangles with invalid indices,
+  - removes degenerate triangles,
+  - recomputes vertex normals,
+  - never boolean-unions shells,
+  - never mutates the live Builder scene.
+- Native bridge now exposes:
+  - preview_safe_repair,
+  - export_repaired_stl,
+  - export_repaired_3mf.
+- Flutter exposes one Repair & Export action on desktop and mobile.
+  - preview dialog shows removed triangles and remaining shell/boundary/non-manifold/winding diagnostics,
+  - user chooses repaired STL or repaired 3MF,
+  - repaired export works from a baked copy and leaves rig/asset history untouched.
+- Native FBX import now supports:
+  - static FBX,
+  - one skinned mesh node with one SkinDeformer,
+  - ancestor joint hierarchy,
+  - geometry_to_bone inverse bind matrices,
+  - top four normalized skin weights,
+  - Rig V3 / Mixamo joint names.
+  Multi-skinned FBX scenes are rejected explicitly instead of being rendered incorrectly.
+- Binary and ASCII STL import is implemented and loads into WGPU with meters_per_unit conversion.
+- Native import capability reporting no longer claims 3MF import support; 3MF remains export-only.
+- CI FRB integration shell bug fixed:
+  Linux/macOS bash jobs now use bash syntax and Windows keeps PowerShell syntax.
+- GitHub Actions hosted-runner allocation can still fail before repository steps; that remains separate from repository compile/test results.
+
+Current validation priority:
+1. Rust workspace tests.
+2. app/rust tests.
+3. flutter_rust_bridge_codegen integrate/generate.
+4. flutter analyze/test.
+5. Windows build.
+6. Android build.
+7. Linux/macOS/iOS as available.
+8. One real Mixamo FBX rest/FK/IK deformation comparison.
+9. One 100 mm print-size export check in STL and 3MF.
+10. Safe Repair export check on intentionally degenerate geometry.
