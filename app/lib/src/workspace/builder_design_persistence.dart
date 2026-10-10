@@ -212,7 +212,7 @@ final class BuilderDesignPersistence {
     );
   }
 
-  Future<BuilderExportResult> exportRepairedStl({
+  Future<BuilderRepairExportResult> exportRepairedStl({
     required String productName,
     required NativeViewportController viewport,
   }) async {
@@ -235,17 +235,16 @@ final class BuilderDesignPersistence {
     if (status == null) {
       throw StateError('Native repaired STL export is unavailable.');
     }
-    final validation = await validateCurrentPrint(viewport: viewport);
-    return BuilderExportResult(
+    return BuilderRepairExportResult(
       path: status.path,
       sceneCount: status.sceneCount,
       meshCount: status.meshCount,
       triangleCount: status.triangleCount,
-      validation: validation,
+      repair: preview,
     );
   }
 
-  Future<BuilderExportResult> exportRepaired3mf({
+  Future<BuilderRepairExportResult> exportRepaired3mf({
     required String productName,
     required NativeViewportController viewport,
   }) async {
@@ -268,13 +267,12 @@ final class BuilderDesignPersistence {
     if (status == null) {
       throw StateError('Native repaired 3MF export is unavailable.');
     }
-    final validation = await validateCurrentPrint(viewport: viewport);
-    return BuilderExportResult(
+    return BuilderRepairExportResult(
       path: status.path,
       sceneCount: status.sceneCount,
       meshCount: status.meshCount,
       triangleCount: status.triangleCount,
-      validation: validation,
+      repair: preview,
     );
   }
 
@@ -549,4 +547,21 @@ final class BuilderSafeRepairResult {
   final int remainingWindingEdges;
   final int remainingShells;
   final bool watertight;
+}
+
+
+final class BuilderRepairExportResult {
+  const BuilderRepairExportResult({
+    required this.path,
+    required this.sceneCount,
+    required this.meshCount,
+    required this.triangleCount,
+    required this.repair,
+  });
+
+  final String path;
+  final int sceneCount;
+  final int meshCount;
+  final int triangleCount;
+  final BuilderSafeRepairResult repair;
 }
